@@ -2,21 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Michael Thomas Ray — Work & Contact</title>
+  <title>Michael Thomas Ray — Work, Profile, Contact</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Personal site for Michael Thomas Ray: background, work history, and contact. Simple HTML. No tracking.">
+  <meta name="description" content="Plain-HTML profile for Michael Thomas Ray: background, work history, and contact. No scripts. No tracking.">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#0b0b0c">
+  <link rel="canonical" href="https://michaelthomasray.com/">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/icon.png" type="image/png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-  <!-- Open Graph -->
+  <!-- Open Graph / Twitter -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="Michael Thomas Ray">
   <meta property="og:description" content="Background, work history, and contact. Simple HTML. No tracking.">
   <meta property="og:site_name" content="Michael Thomas Ray">
   <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="/og.png">
   <meta name="twitter:card" content="summary_large_image">
 
   <!-- Schema.org Person -->
@@ -27,21 +29,24 @@
     "name": "Michael Thomas Ray",
     "email": "mailto:raym08@gmail.com",
     "telephone": "+1-808-780-4361",
+    "url": "https://michaelthomasray.com/",
     "sameAs": [
       "https://www.linkedin.com/in/michael-ray-610094360/",
       "https://github.com/strintfloat"
-    ]
+    ],
+    "worksFor": {
+      "@type": "Organization",
+      "name": "Tailworthy Stables"
+    }
   }
   </script>
 
   <meta name="robots" content="index,follow">
 
   <style>
-    /* --- Minimal, modern, accessible --- */
-    :root { color-scheme: light dark; }
-
-    /* Tokens */
+    /* --- Tokens (light/dark and high contrast mindful) --- */
     :root {
+      color-scheme: light dark;
       --bg: #0b0b0c;
       --fg: #e7e7ea;
       --muted: #a3a3ad;
@@ -51,6 +56,8 @@
       --accent-2: #7aa2ff;
       --focus: #9ec1ff;
       --shadow: 0 8px 24px rgba(0,0,0,.28);
+      --radius: 14px;
+      --maxw: 760px;
     }
     @media (prefers-color-scheme: light) {
       :root {
@@ -76,56 +83,78 @@
       font: 400 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
       letter-spacing: 0.2px;
       display: grid;
-      grid-template-rows: 1fr auto;
+      grid-template-rows: auto 1fr auto;
     }
 
-    /* Skip link */
+    /* Focus + skip */
     :focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
-    a[href="#content"] { position:absolute; left:-9999px; }
-    a[href="#content"]:focus-visible { position:static; display:inline-block; margin:1rem 0; }
+    .skip { position: absolute; left: -9999px; }
+    .skip:focus-visible { position: static; display: inline-block; margin: 1rem 0; }
 
-    /* Layout */
+    /* Header */
+    header {
+      width: 100%;
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: clamp(12px, 2.5vw, 24px) clamp(16px, 3vw, 32px);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px 16px;
+    }
+    .brand {
+      display: grid;
+      gap: 4px;
+    }
+    .brand h1 { margin: 0; font-weight: 700; font-size: clamp(26px, 3.8vw, 40px); line-height: 1.2; letter-spacing: .2px; }
+    .brand p { margin: 0; color: var(--muted); }
+
+    nav ul {
+      display: flex; gap: 14px; list-style: none; padding: 0; margin: 0;
+    }
+    nav a { color: var(--accent); text-decoration-thickness: .08em; text-underline-offset: 3px; }
+    nav a:hover { text-decoration-thickness: .14em; color: var(--accent-2); }
+
+    /* Main */
     main {
       width: 100%;
-      max-width: 760px;
+      max-width: var(--maxw);
       margin: 0 auto;
-      padding: clamp(16px, 3vw, 32px);
+      padding: 0 clamp(16px, 3vw, 32px) clamp(24px, 3vw, 40px);
     }
 
-    /* Typography */
-    h1, h2, h3, summary { font-weight: 600; line-height: 1.25; }
-    h1 { font-size: clamp(28px, 4vw, 40px); letter-spacing: .2px; }
-    h2 { font-size: clamp(18px, 2.4vw, 22px); margin: 1.25rem 0 .5rem; color: var(--muted); }
-    h3 { font-size: 16px; margin: .5rem 0 .25rem; }
-    p, li, label, input, textarea, button, small { font-size: 16px; }
-    small { color: var(--muted); }
-
-    /* Links */
-    a { color: var(--accent); text-decoration-thickness: .08em; text-underline-offset: 3px; }
-    a:hover { text-decoration-thickness: .14em; color: var(--accent-2); }
-
-    /* Rules */
-    hr {
-      border: 0; height: 1px; margin: 24px 0;
-      background: linear-gradient(90deg, transparent, var(--border), transparent);
+    /* Sections as cards */
+    details {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      overflow: clip;
     }
-
-    /* Cards via <details> */
-    details { border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); overflow: clip; }
     details + details { margin-top: 16px; }
-
-    summary { cursor: pointer; list-style: none; padding: 16px 18px; display: flex; align-items: center; gap: 8px; }
+    summary {
+      cursor: pointer; list-style: none; padding: 16px 18px;
+      display: flex; align-items: center; gap: 8px; font-weight: 600;
+    }
     summary::-webkit-details-marker { display: none; }
     summary::after { content: "▸"; margin-left: auto; transition: transform .2s ease; opacity: .6; }
     details[open] summary::after { transform: rotate(90deg); opacity: .9; }
-
     details > section { padding: 0 18px 18px; }
     details[open] > section { animation: fadeIn .18s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-2px);} to { opacity: 1; transform: none; } }
 
-    /* Lists */
+    h2 { font-size: clamp(18px, 2.4vw, 22px); margin: 1.25rem 0 .5rem; color: var(--muted); }
+    h3 { font-size: 16px; margin: .5rem 0 .25rem; }
+    p, li, label, input, textarea, button, small { font-size: 16px; }
+    small { color: var(--muted); }
     ul { padding-left: 1.1rem; margin: .25rem 0 0; }
     li { margin: .25rem 0; }
+
+    /* Divider */
+    .rule {
+      border: 0; height: 1px; margin: 24px 0;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+    }
 
     /* Articles */
     article { padding: 12px 0; border-bottom: 1px dashed var(--border); }
@@ -137,27 +166,17 @@
     form { display: grid; gap: 10px; max-width: 560px; }
     label { color: var(--muted); }
     input[type="text"], textarea {
-      width: 100%;
-      padding: 12px 14px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--fg);
-      outline: none;
+      width: 100%; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid var(--border); background: transparent; color: var(--fg); outline: none;
     }
     input::placeholder, textarea::placeholder { color: var(--muted); }
     input:focus, textarea:focus { border-color: var(--focus); box-shadow: 0 0 0 4px color-mix(in oklab, var(--focus) 20%, transparent); }
 
     button[type="submit"] {
-      -webkit-appearance: none;
-      appearance: none;
+      -webkit-appearance: none; appearance: none;
       border: 1px solid var(--border);
       background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, transparent), transparent);
-      color: var(--fg);
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-weight: 600;
-      cursor: pointer;
+      color: var(--fg); padding: 10px 14px; border-radius: 12px; font-weight: 600; cursor: pointer;
       transition: transform .06s ease, border-color .15s ease;
     }
     button[type="submit"]:hover { border-color: var(--accent-2); }
@@ -168,8 +187,21 @@
     address p { margin: 0; }
 
     /* Footer */
-    footer { width: 100%; max-width: 760px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 32px) 32px; }
+    footer {
+      width: 100%; max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 0 clamp(16px, 3vw, 32px) 32px;
+    }
     footer p { color: var(--muted); }
+
+    /* Print */
+    @media print {
+      body { background: #fff; color: #000; box-shadow: none; }
+      header, footer { box-shadow: none; }
+      details { border: 1px solid #000; break-inside: avoid; }
+      summary::after { content: ""; }
+      a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 12px; color: #555; }
+    }
 
     /* Reduced motion */
     @media (prefers-reduced-motion: reduce) {
@@ -178,25 +210,21 @@
   </style>
 </head>
 <body>
-
-  <a href="#content">Skip to content</a>
-
-  <main id="content">
-    <h1>Michael Thomas Ray</h1>
-
+  <a class="skip" href="#content">Skip to content</a>
+  <main id="content" role="main">
     <!-- PERSONAL -->
-    <details id="personal" open>
+    <details id="personal">
       <summary>Personal</summary>
-      <section aria-labelledby="profile-heading">
+      <section aria-labelledby="profile-heading" class="p-note">
         <h2 id="profile-heading">Profile</h2>
         <p>
-        Born and based in Pittsburgh, Pennsylvania. Maintain active interests in land management, animal husbandry, and applied computer science. Prioritize precision, privacy, and long-term asset control in both personal and professional domains.
+          Born and based in Pittsburgh, Pennsylvania. Maintain active interests in land management, animal husbandry, and applied computer science. Prioritize precision, privacy, and long-term asset control across personal and professional domains.
         </p>
         <p>
-        Operate within procurement and business operations with over fifteen years of cumulative experience across higher education, corporate, and small business settings. Current work centers on equestrian facility management and procedural optimization. Previous roles include procurement systems analysis, vendor data administration, and financial process support.
+          Operate within procurement and business operations with 15+ years of cumulative experience across higher education, corporate, and small business settings. Current work centers on equestrian facility management and procedural optimization. Previous roles include procurement systems analysis, vendor data administration, and financial process support.
         </p>
         <p>
-        Direct contact is available by email or phone for verifiable professional matters. Public records of work and technical output are maintained through LinkedIn and GitHub.
+          Direct contact is available by email or phone for verifiable professional matters. Public records of work and technical output are maintained through LinkedIn and GitHub.
         </p>
       </section>
       <section aria-labelledby="present-heading">
@@ -210,7 +238,7 @@
       </section>
     </details>
 
-    <hr>
+    <hr class="rule" aria-hidden="true">
 
     <!-- PROFESSIONAL -->
     <details id="professional">
@@ -219,7 +247,7 @@
         <h2 id="record-heading">Work History</h2>
 
         <article>
-          <h3><a href="https://www.facebook.com/p/Tail-Worthy-Stables-61558109177331/" target="_blank" rel="noopener noreferrer me">Tailworthy Stables</a> — Co-Owner &amp; Operator (2023–Present)</h3>
+          <h3><a class="u-url" href="https://www.facebook.com/p/Tail-Worthy-Stables-61558109177331/" target="_blank" rel="noopener noreferrer me">Tailworthy Stables</a> — Co-Owner &amp; Operator (2023–Present)</h3>
           <p>Run and maintain an equestrian boarding business.</p>
         </article>
 
@@ -250,29 +278,20 @@
       </section>
     </details>
 
-    <hr>
+    <hr class="rule" aria-hidden="true">
 
     <!-- CONTACT -->
     <details id="contact">
       <summary>Contact</summary>
-      <section aria-labelledby="contact-heading">
+      <section aria-labelledby="contact-heading" class="h-card">
         <h2 id="contact-heading">Contact</h2>
-        <form action="mailto:raym08@gmail.com" method="get" enctype="text/plain">
-          <label for="subject">Subject</label>
-          <input type="text" id="subject" name="subject" placeholder="Regarding…" required>
-
-          <label for="body">Message</label>
-          <textarea id="body" name="body" rows="6" placeholder="Write your message" required></textarea>
-
-          <button type="submit">Send</button>
-        </form>
-        <p><small>Submitting opens your default mail client. No data is stored on this site.</small></p>
         <address>
-          <p><a href="mailto:raym08@gmail.com" rel="me">raym08@gmail.com</a></p>
-          <p><a href="tel:+18087804361">808-780-4361</a></p>
+          <p>Email: <a class="u-email" href="mailto:raym08@gmail.com" rel="me">raym08@gmail.com</a></p>
+          <p>Phone: <a class="p-tel" href="tel:+18087804361">808-780-4361</a></p>
           <p>
-            <a href="https://www.linkedin.com/in/michael-ray-610094360/" target="_blank" rel="me noopener noreferrer">LinkedIn</a> ·
-            <a href="https://github.com/strintfloat" target="_blank" rel="me noopener noreferrer">GitHub</a>
+            <a class="u-url" href="https://www.linkedin.com/in/michael-ray-610094360/" target="_blank" rel="me noopener noreferrer">LinkedIn</a> ·
+            <a class="u-url" href="https://github.com/strintfloat" target="_blank" rel="me noopener noreferrer">GitHub</a> ·
+            <a download="Michael_Thomas_Ray.vcf" href="data:text/vcard;charset=utf-8,BEGIN%3AVCARD%0AVERSION%3A4.0%0AN%3ARay%3BMichael%20Thomas%3B%3B%3B%0AFN%3AMichael%20Thomas%20Ray%0AEMAIL%3Btype%3Dwork%3Araym08%40gmail.com%0ATEL%3Btype%3Dcell%3A%2B1-808-780-4361%0AURL%3Ahttps%3A%2F%2Fmichaelthomasray.com%2F%0AEND%3AVCARD">vCard</a>
           </p>
         </address>
       </section>
@@ -280,7 +299,7 @@
   </main>
 
   <footer role="contentinfo">
-    <hr>
+    <hr class="rule" aria-hidden="true">
     <p><small>Plain HTML. No scripts. No tracking. © <time datetime="2025">2025</time> Michael Thomas Ray.</small></p>
   </footer>
 </body>
