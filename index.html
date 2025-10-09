@@ -2,216 +2,286 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Michael Thomas Ray</title>
+  <title>Michael Thomas Ray — Work & Contact</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Personal portal for Michael Thomas Ray, an organized collection of work, life insights, and references.">
+  <meta name="description" content="Personal site for Michael Thomas Ray: background, work history, and contact. Simple HTML. No tracking.">
   <meta name="color-scheme" content="light dark">
-  <link rel="canonical" href="https://example.com/">
-  <link rel="icon" href="favicon.ico">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Michael Thomas Ray">
+  <meta property="og:description" content="Background, work history, and contact. Simple HTML. No tracking.">
+  <meta property="og:site_name" content="Michael Thomas Ray">
+  <meta property="og:locale" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <!-- Schema.org Person -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": "Michael Thomas Ray",
+    "email": "mailto:raym08@gmail.com",
+    "telephone": "+1-808-780-4361",
+    "sameAs": [
+      "https://www.linkedin.com/in/michael-ray-610094360/",
+      "https://github.com/strintfloat"
+    ]
+  }
+  </script>
+
+  <meta name="robots" content="index,follow">
+
+  <style>
+    /* --- Minimal, modern, accessible --- */
+    :root { color-scheme: light dark; }
+
+    /* Tokens */
+    :root {
+      --bg: #0b0b0c;
+      --fg: #e7e7ea;
+      --muted: #a3a3ad;
+      --card: #111114;
+      --border: #26262d;
+      --accent: #4f8cff;
+      --accent-2: #7aa2ff;
+      --focus: #9ec1ff;
+      --shadow: 0 8px 24px rgba(0,0,0,.28);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff;
+        --fg: #0b0b0c;
+        --muted: #5c5c66;
+        --card: #ffffff;
+        --border: #e7e7ea;
+        --accent: #0b63f6;
+        --accent-2: #2d7bff;
+        --focus: #2d7bff;
+        --shadow: 0 8px 24px rgba(0,0,0,.06);
+      }
+    }
+
+    /* Base */
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 400 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      letter-spacing: 0.2px;
+      display: grid;
+      grid-template-rows: 1fr auto;
+    }
+
+    /* Skip link */
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+    a[href="#content"] { position:absolute; left:-9999px; }
+    a[href="#content"]:focus-visible { position:static; display:inline-block; margin:1rem 0; }
+
+    /* Layout */
+    main {
+      width: 100%;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: clamp(16px, 3vw, 32px);
+    }
+
+    /* Typography */
+    h1, h2, h3, summary { font-weight: 600; line-height: 1.25; }
+    h1 { font-size: clamp(28px, 4vw, 40px); letter-spacing: .2px; }
+    h2 { font-size: clamp(18px, 2.4vw, 22px); margin: 1.25rem 0 .5rem; color: var(--muted); }
+    h3 { font-size: 16px; margin: .5rem 0 .25rem; }
+    p, li, label, input, textarea, button, small { font-size: 16px; }
+    small { color: var(--muted); }
+
+    /* Links */
+    a { color: var(--accent); text-decoration-thickness: .08em; text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: .14em; color: var(--accent-2); }
+
+    /* Rules */
+    hr {
+      border: 0; height: 1px; margin: 24px 0;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+    }
+
+    /* Cards via <details> */
+    details { border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); overflow: clip; }
+    details + details { margin-top: 16px; }
+
+    summary { cursor: pointer; list-style: none; padding: 16px 18px; display: flex; align-items: center; gap: 8px; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "▸"; margin-left: auto; transition: transform .2s ease; opacity: .6; }
+    details[open] summary::after { transform: rotate(90deg); opacity: .9; }
+
+    details > section { padding: 0 18px 18px; }
+    details[open] > section { animation: fadeIn .18s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-2px);} to { opacity: 1; transform: none; } }
+
+    /* Lists */
+    ul { padding-left: 1.1rem; margin: .25rem 0 0; }
+    li { margin: .25rem 0; }
+
+    /* Articles */
+    article { padding: 12px 0; border-bottom: 1px dashed var(--border); }
+    article:last-child { border-bottom: 0; }
+    article h3 { display: inline-block; margin: 0 0 6px; }
+    article p { margin: 0 0 4px; color: var(--muted); }
+
+    /* Form */
+    form { display: grid; gap: 10px; max-width: 560px; }
+    label { color: var(--muted); }
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--fg);
+      outline: none;
+    }
+    input::placeholder, textarea::placeholder { color: var(--muted); }
+    input:focus, textarea:focus { border-color: var(--focus); box-shadow: 0 0 0 4px color-mix(in oklab, var(--focus) 20%, transparent); }
+
+    button[type="submit"] {
+      -webkit-appearance: none;
+      appearance: none;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, transparent), transparent);
+      color: var(--fg);
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .06s ease, border-color .15s ease;
+    }
+    button[type="submit"]:hover { border-color: var(--accent-2); }
+    button[type="submit"]:active { transform: translateY(1px); }
+
+    /* Address */
+    address { font-style: normal; display: grid; gap: 2px; }
+    address p { margin: 0; }
+
+    /* Footer */
+    footer { width: 100%; max-width: 760px; margin: 0 auto; padding: 0 clamp(16px, 3vw, 32px) 32px; }
+    footer p { color: var(--muted); }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+  </style>
 </head>
 <body>
-  <header>
+
+  <a href="#content">Skip to content</a>
+
+  <main id="content">
     <h1>Michael Thomas Ray</h1>
-    <p>Life, Work, and Long-Term Design</p>
-    <p>Sewickley Hills, USA</p>
-    <nav aria-label="Directory">
-      <ul>
-        <li><a href="#profile">Profile &amp; Statement</a></li>
-        <li><a href="#record">Professional Record</a></li>
-        <li><a href="#projects">Independent Projects</a></li>
-        <li><a href="#writing">Writing &amp; Research</a></li>
-        <li><a href="#coffee">Coffee Table</a></li>
-        <li><a href="#present">At Present</a></li>
-        <li><a href="#transparency">Transparency</a></li>
-        <li><a href="#chronicle">Chronicle</a></li>
-        <li><a href="#contact">Correspondence</a></li>
-      </ul>
-    </nav>
-    <hr>
-  </header>
 
-  <main>
-
-    <details>
-      <summary>Profile &amp; Statement</summary>
-      <section id="profile" aria-labelledby="profile-heading">
-        <h2 id="profile-heading">Profile &amp; Statement</h2>
-        <p>I built this site to centralize my resources, accessible from anywhere, as the foundation for persistent memory and autonomous agent creation.</p>
-        <p>Function: a public-facing index to personal infrastructure and references. Philosophy: a durable interface for thinking, evaluation, and controlled expansion.</p>
+    <!-- PERSONAL -->
+    <details id="personal" open>
+      <summary>Personal</summary>
+      <section aria-labelledby="profile-heading">
+        <h2 id="profile-heading">Profile</h2>
+        <p>
+        Born and based in Pittsburgh, Pennsylvania. Maintain active interests in land management, animal husbandry, and applied computer science. Prioritize precision, privacy, and long-term asset control in both personal and professional domains.
+        </p>
+        <p>
+        Operate within procurement and business operations with over fifteen years of cumulative experience across higher education, corporate, and small business settings. Current work centers on equestrian facility management and procedural optimization. Previous roles include procurement systems analysis, vendor data administration, and financial process support.
+        </p>
+        <p>
+        Direct contact is available by email or phone for verifiable professional matters. Public records of work and technical output are maintained through LinkedIn and GitHub.
+        </p>
       </section>
-    </details>
-
-    <hr>
-
-    <details>
-      <summary>Professional Record</summary>
-      <section id="record" aria-labelledby="record-heading">
-        <h2 id="record-heading">Professional Record</h2>
-
-        <article>
-          <header>
-            <h3><a href="https://www.facebook.com/p/Tail-Worthy-Stables-61558109177331/">Tailworthy Stables</a> — Co-Owner &amp; Operator (2023–Present)</h3>
-          </header>
-          <p>Founded and manage a luxury equestrian boarding operation, handling budgeting, procurement, compliance, contracts, and vendor oversight.</p>
-        </article>
-
-        <article>
-          <header>
-            <h3><a href="https://www.cmu.edu/">Carnegie Mellon University</a> — Procurement Specialist / Associate Buyer (Sep 2018 – Aug 2024)</h3>
-          </header>
-          <p>Managed procurement across a $400M+ portfolio, enforced compliance, streamlined workflows, and supported audits, accounts, and property integration.</p>
-        </article>
-
-        <article>
-          <header>
-            <h3><a href="https://lanxess.com/">LANXESS Corporation</a> — Vendor Master Data Analyst (Sep 2015 – Sep 2018)</h3>
-          </header>
-          <p>Maintained accurate vendor records, enforced regulatory controls, and supported large-scale vendor migration during a corporate spin-off.</p>
-        </article>
-
-        <article>
-          <header>
-            <h3><a href="https://en.wikipedia.org/wiki/Education_Management_Corporation">Education Management Corporation</a> — Finance &amp; Procurement Systems Analyst (May 2012 – Jun 2015)</h3>
-          </header>
-          <p>Oversaw vendor data systems, reconciled financials, supported audit and tax reporting, and coordinated payments.</p>
-        </article>
-
-        <article>
-          <header>
-            <h3><a href="https://www.duq.edu/">Duquesne University</a> — AP Clerk (Work Study) (May 2011 – May 2012)</h3>
-          </header>
-          <p>Processed vendor invoices and expense reports, managed 1099 forms, and supported tax/accounting recordkeeping.</p>
-        </article>
-
-        <article>
-          <header>
-            <h3>
-              <a href="https://www.army.mil/19thESC">19th ESC</a> &amp;
-              <a href="https://home.army.mil/daegu/about/Garrison/public-affairs">USAG Daegu Public Affairs Office</a>
-              — General Helper (Jun 2008 – Aug 2009)
-            </h3>
-          </header>
-          <p>Supported public affairs communications, writing, photography, logistics, and event support within 19th ESC and USAG Daegu to convey installation missions and internal/external messaging.</p>
-        </article>
-      </section>
-    </details>
-
-    <hr>
-
-    <details>
-      <summary>Independent Projects</summary>
-      <section id="projects" aria-labelledby="projects-heading">
-        <h2 id="projects-heading">Independent Projects</h2>
+      <section aria-labelledby="present-heading">
+        <h2 id="present-heading">Current Focus</h2>
         <ul>
-          <li>
-            <strong>Tailworthy Infrastructure</strong><br>
-            Ongoing development of Tailworthy Stables infrastructure, including new fencing, training facilities, and adaptive housing for boarders and retirees.
-          </li>
-          <li>
-            <strong>Personal Portal</strong><br>
-            Systematic, line-by-line construction of a permanent personal portal, designed for clarity, longevity, and machine integration without external dependencies.
-          </li>
+          <li>Career transition</li>
+          <li>Raising an Irish Wolfhound</li>
+          <li>Managing a horse boarding business</li>
+          <li>Expanding knowledge in computer science</li>
         </ul>
       </section>
     </details>
 
     <hr>
 
-    <details>
-      <summary>Writing &amp; Research</summary>
-      <section id="writing" aria-labelledby="writing-heading">
-        <h2 id="writing-heading">Writing &amp; Research</h2>
-        <ul>
-          <li>
-            <strong>Autobiography Project</strong> — Structured documentation of personal history, decisions, and reasoning to train a persistent AI model capable of reflecting my cognitive patterns and values.
-          </li>
-        </ul>
+    <!-- PROFESSIONAL -->
+    <details id="professional">
+      <summary>Professional</summary>
+      <section aria-labelledby="record-heading">
+        <h2 id="record-heading">Work History</h2>
+
+        <article>
+          <h3><a href="https://www.facebook.com/p/Tail-Worthy-Stables-61558109177331/" target="_blank" rel="noopener noreferrer me">Tailworthy Stables</a> — Co-Owner &amp; Operator (2023–Present)</h3>
+          <p>Run and maintain an equestrian boarding business.</p>
+        </article>
+
+        <article>
+          <h3><a href="https://www.cmu.edu/" target="_blank" rel="noopener noreferrer">Carnegie Mellon University</a> — Procurement Specialist / Associate Buyer (2018–2024)</h3>
+          <p>Handled purchasing and procurement for the College of Engineering and the wider university.</p>
+        </article>
+
+        <article>
+          <h3><a href="https://lanxess.com/" target="_blank" rel="noopener noreferrer">LANXESS Corporation</a> — Vendor Data Analyst (2015–2018)</h3>
+          <p>Maintained supplier records and aligned data policies with global headquarters in Germany.</p>
+        </article>
+
+        <article>
+          <h3><a href="https://en.wikipedia.org/wiki/Education_Management_Corporation" target="_blank" rel="noopener noreferrer">Education Management Corporation</a> — Finance &amp; Procurement Systems Analyst (2012–2015)</h3>
+          <p>Managed purchasing systems, ERP upgrades, and corporate transitions.</p>
+        </article>
+
+        <article>
+          <h3><a href="https://www.duq.edu/" target="_blank" rel="noopener noreferrer">Duquesne University</a> — Accounts Payable Clerk, Work Study (2011–2012)</h3>
+          <p>Processed invoices and expenses to support daily university operations.</p>
+        </article>
+
+        <article>
+          <h3><a href="https://www.army.mil/19thESC" target="_blank" rel="noopener noreferrer">19th ESC</a> &amp; <a href="https://home.army.mil/daegu/about/Garrison/public-affairs" target="_blank" rel="noopener noreferrer">USAG Daegu PAO</a> — Administrative Support (2008–2009)</h3>
+          <p>Supported logistics and communications for military transport and supply; wrote newsletters and photographed cultural and military events in Daegu, South Korea.</p>
+        </article>
       </section>
     </details>
 
     <hr>
 
-    <details>
-      <summary>Coffee Table</summary>
-      <section id="coffee" aria-labelledby="coffee-heading">
-        <h2 id="coffee-heading">Coffee Table</h2>
-        <ul>
-          <li>
-            <a href="https://www.wqed.org/fm/player/main/">Listen Live: WQED-FM 89.3</a><br>
-            Live classical broadcast from Pittsburgh’s public station, part of a personally curated reference list.
-          </li>
-        </ul>
-      </section>
-    </details>
+    <!-- CONTACT -->
+    <details id="contact">
+      <summary>Contact</summary>
+      <section aria-labelledby="contact-heading">
+        <h2 id="contact-heading">Contact</h2>
+        <form action="mailto:raym08@gmail.com" method="get" enctype="text/plain">
+          <label for="subject">Subject</label>
+          <input type="text" id="subject" name="subject" placeholder="Regarding…" required>
 
-    <hr>
+          <label for="body">Message</label>
+          <textarea id="body" name="body" rows="6" placeholder="Write your message" required></textarea>
 
-    <details>
-      <summary>At Present</summary>
-      <section id="present" aria-labelledby="present-heading">
-        <h2 id="present-heading">At Present</h2>
-        <p>Currently focused on professional transition, raising a young Irish Wolfhound, managing the horse-boarding farm, and advancing in computer science.</p>
-      </section>
-    </details>
-
-    <hr>
-
-    <details>
-      <summary>Transparency</summary>
-      <section id="transparency" aria-labelledby="transparency-heading">
-        <h2 id="transparency-heading">Transparency</h2>
-        <p>This site is maintained for personal interest. No services are offered or owed. Communication is welcome if conducted with courtesy.</p>
-        <p>No JavaScript. No client-side tracking. No cookies. Plain HTML served over HTTPS.</p>
-        <p>Accessibility: semantic headings, labeled forms, text-only navigation, keyboard-first design.</p>
-      </section>
-    </details>
-
-    <hr>
-
-    <details>
-      <summary>Chronicle</summary>
-      <section id="chronicle" aria-labelledby="chronicle-heading">
-        <h2 id="chronicle-heading">Chronicle</h2>
-        <p>Updated as time and interest permit; content expands only when genuine progress occurs.</p>
-      </section>
-    </details>
-
-    <hr>
-
-    <details>
-      <summary>Correspondence</summary>
-      <section id="contact" aria-labelledby="contact-heading">
-        <h2 id="contact-heading">Correspondence</h2>
+          <button type="submit">Send</button>
+        </form>
+        <p><small>Submitting opens your default mail client. No data is stored on this site.</small></p>
         <address>
-          <p><a href="mailto:raym08@gmail.com">raym08@gmail.com</a></p>
+          <p><a href="mailto:raym08@gmail.com" rel="me">raym08@gmail.com</a></p>
           <p><a href="tel:+18087804361">808-780-4361</a></p>
           <p>
-            <a href="https://www.linkedin.com/in/michael-ray-610094360/">LinkedIn</a> ·
-            <a href="https://github.com/strintfloat">GitHub</a>
+            <a href="https://www.linkedin.com/in/michael-ray-610094360/" target="_blank" rel="me noopener noreferrer">LinkedIn</a> ·
+            <a href="https://github.com/strintfloat" target="_blank" rel="me noopener noreferrer">GitHub</a>
           </p>
         </address>
-        <form action="https://example.com/form-endpoint" method="post">
-          <fieldset>
-            <legend>Send a message</legend>
-            <label for="name">Name</label><br>
-            <input id="name" name="name" type="text" required><br>
-            <label for="email">Email</label><br>
-            <input id="email" name="email" type="email" required><br>
-            <label for="message">Message</label><br>
-            <textarea id="message" name="message" rows="6" required></textarea><br>
-            <button type="submit">Send</button>
-          </fieldset>
-        </form>
       </section>
     </details>
-
   </main>
 
-  <footer>
+  <footer role="contentinfo">
     <hr>
-    <p><small>© <time datetime="2025">2025</time> Michael Thomas Ray. All rights reserved.</small></p>
-    <p><small>Work in definition.</small></p>
-    <p><small>Plain HTML. No JavaScript. No CSS.</small></p>
+    <p><small>Plain HTML. No scripts. No tracking. © <time datetime="2025">2025</time> Michael Thomas Ray.</small></p>
   </footer>
 </body>
 </html>
