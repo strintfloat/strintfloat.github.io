@@ -49,7 +49,6 @@
     <details id="personal">
       <summary>Personal</summary>
       <section aria-labelledby="profile-heading" class="p-note">
-        <h2 id="profile-heading">Profile</h2>
         <section>
           <p>I was born and raised in South Korea and now live outside of Pittsburgh, Pennsylvania. I maintain active interests in land management, animal husbandry, and applied computer science.</p>
           <p>I have worked in procurement and business operations for over fifteen years across higher education, corporate, and small business environments. My current focus is on horses, this website, and finding opportunities that I can apply my experience to while learning new trades.</p>
@@ -68,9 +67,8 @@
     <hr aria-hidden="true">
 
     <details id="professional">
-      <summary>Professional</summary>
+      <summary>Work History</summary>
       <section aria-labelledby="record-heading">
-        <h2 id="record-heading">Work History</h2>
 
         <article>
           <h3><a class="u-url" href="https://www.facebook.com/p/Tail-Worthy-Stables-61558109177331/" target="_blank" rel="noopener noreferrer me">Tailworthy Stables</a> — Co-Owner &amp; Operator (2023–Present)</h3>
@@ -116,12 +114,77 @@
           <p>
             <a class="u-url" href="https://www.linkedin.com/in/michael-ray-610094360/" target="_blank" rel="me noopener noreferrer">LinkedIn</a> ·
             <a class="u-url" href="https://github.com/strintfloat" target="_blank" rel="me noopener noreferrer">GitHub</a> ·
-            <a download="Michael_Thomas_Ray.vcf" href="data:text/vcard;charset=utf-8,BEGIN%3AVCARD%0AVERSION%3A4.0%0AKIND%3Aindividual%0AN%3ARay%3BMichael%20Thomas%3B%3B%3B%0AFN%3AMichael%20Thomas%20Ray%0AORG%3ATailworthy%20Stables%0ATITLE%3ABusiness%20Office%20Specialist%0AEMAIL%3Amailto%3Araym08%40gmail.com%0ATEL%3BVALUE%3Duri%3BTYPE%3Dcell%2Cvoice%3Atel%3A%2B1-808-780-4361%0AURL%3Ahttps%3A%2F%2Fmichaelthomasray.com%2F%0AREV%3A20251009T000000Z%0AEND%3AVCARD">vCard</a>
+            <a download="Michael_Thomas_Ray.vcf" <a href="data:text/vcard;charset=utf-8,BEGIN%3AVCARD%0AVERSION%3A4.0%0AFN%3AMichael%20Thomas%20Ray%0AORG%3ATailworthy%20Stables%0ATITLE%3AOwner%2FOperator%0AEMAIL%3BTYPE%3Dwork%3Araym08%40gmail.com%0ATEL%3BTYPE%3Dwork%2Cvoice%3A%2B14122593479%0AADR%3BTYPE%3Dwork%3A%3B%3B2210%20Henry%20Road%3B%3BSewickley%3BPA%3B15143%3BUSA%0AURL%3BTYPE%3Dwork%3Ahttps%3A%2F%2Fstrintfoat.github.io%0ABDAY%3A1989-07-20%0AEND%3AVCARD" download="MichaelThomasRay.vcf">Download vCard</a>
           </p>
         </address>
       </section>
     </details>
   </main>
+
+  <!-- Klein Bottle Render -->
+  <canvas id="klein"></canvas>
+  <script>
+  const vs=`attribute vec3 a;uniform mat4 m;void main(){gl_Position=m*vec4(a,1.0);}`;
+  const fs=`precision mediump float;uniform vec4 c;void main(){gl_FragColor=c;}`;
+  const g=document.getElementById('klein'),gl=g.getContext('webgl',{antialias:true});
+  if(!gl)throw'WebGL unavailable';
+  function R(){const dpr=Math.min(window.devicePixelRatio||1,2);
+    g.width=innerWidth*dpr;g.height=400*dpr;
+    g.style.width='100%';g.style.height='400px';gl.viewport(0,0,g.width,g.height);}
+  addEventListener('resize',R);R();
+  function S(t,s){const h=gl.createShader(t);gl.shaderSource(h,s);gl.compileShader(h);
+    if(!gl.getShaderParameter(h,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(h);return h;}
+  const p=gl.createProgram();
+  gl.attachShader(p,S(gl.VERTEX_SHADER,vs));
+  gl.attachShader(p,S(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw gl.getProgramInfoLog(p);
+  gl.useProgram(p);
+  const a=gl.getAttribLocation(p,'a'),uM=gl.getUniformLocation(p,'m'),uC=gl.getUniformLocation(p,'c');
+  function k(u,v){const A=2,cu2=Math.cos(u*.5),su2=Math.sin(u*.5),sv=Math.sin(v),s2v=Math.sin(2*v);
+    const R=A+cu2*sv-su2*s2v;return[R*Math.cos(u),R*Math.sin(u),su2*sv+cu2*s2v];}
+  const nu=96,nv=48,vx=new Float32Array((nu+1)*(nv+1)*3),ix=[],lx=[];
+  let p0=0;for(let i=0;i<=nu;i++){const u=i/nu*Math.PI*2;
+    for(let j=0;j<=nv;j++){const v=j/nv*Math.PI*2,[x,y,z]=k(u,v);vx[p0++]=x;vx[p0++]=y;vx[p0++]=z;}}
+  // normalize to fit view
+  (function(){let minX=1e9,minY=1e9,minZ=1e9,maxX=-1e9,maxY=-1e9,maxZ=-1e9;
+    for(let i=0;i<vx.length;i+=3){const x=vx[i],y=vx[i+1],z=vx[i+2];
+      if(x<minX)minX=x;if(y<minY)minY=y;if(z<minZ)minZ=z;
+      if(x>maxX)maxX=x;if(y>maxY)maxY=y;if(z>maxZ)maxZ=z;}
+    const cx=(minX+maxX)/2,cy=(minY+maxY)/2,cz=(minZ+maxZ)/2;
+    const s=1.8/Math.max(maxX-minX,Math.max(maxY-minY,maxZ-minZ));
+    for(let i=0;i<vx.length;i+=3){vx[i]=(vx[i]-cx)*s;vx[i+1]=(vx[i+1]-cy)*s;vx[i+2]=(vx[i+2]-cz)*s;}})();
+  const r=nv+1;for(let i=0;i<nu;i++)for(let j=0;j<nv;j++){const a=i*r+j,b=a+1,c=(i+1)*r+j,d=c+1;
+    ix.push(a,c,b,b,c,d);lx.push(a,b,b,d,d,c,c,a);}
+  const V=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,V);gl.bufferData(gl.ARRAY_BUFFER,vx,gl.STATIC_DRAW);
+  const I=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,I);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ix),gl.STATIC_DRAW);
+  const L=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(lx),gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,3,gl.FLOAT,false,0,0);
+  function M(){return[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];}
+  function P(f,a,n,F){const t=1/Math.tan(f/2),nf=1/(n-F),m=new Float32Array(16);
+    m[0]=t/a;m[5]=t;m[10]=(F+n)*nf;m[11]=-1;m[14]=2*F*n*nf;return m;}
+  function T(x,y,z){const m=M();m[12]=x;m[13]=y;m[14]=z;return m;}
+  function Rx(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0,0,c,-s,0,0,s,c,0,0,0,0,1]);}
+  function Ry(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,0,s,0,0,1,0,0,-s,0,c,0,0,0,0,1]);}
+  function MM(a,b){const o=new Float32Array(16);for(let r=0;r<4;r++)for(let c=0;c<4;c++)
+    o[r*4+c]=a[r*4+0]*b[0*4+c]+a[r*4+1]*b[1*4+c]+a[r*4+2]*b[2*4+c]+a[r*4+3]*b[3*4+c];return o;}
+  gl.enable(gl.DEPTH_TEST);gl.clearColor(.07,.07,.09,1);
+  function F(t){t*=.001;gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    const asp=g.width/g.height,Pp=P(45*Math.PI/180,asp,.1,100),Vv=T(0,0,-3.5),
+    R=MM(Ry(t*.6),Rx(.6)),MVP=MM(R,MM(Vv,Pp));
+    gl.uniformMatrix4fv(uM,false,MVP);
+    gl.uniform4f(uC,.7,.85,1,1);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,I);
+    gl.drawElements(gl.TRIANGLES,ix.length,gl.UNSIGNED_INT,0);
+    gl.uniform4f(uC,0,0,0,1);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L);
+    gl.drawElements(gl.LINES,lx.length,gl.UNSIGNED_INT,0);
+    requestAnimationFrame(F);}
+  // Uint32 index fallback for WebGL1 without OES_element_index_uint
+  if(!gl.getExtension('OES_element_index_uint')){
+    const u16=x=>{const y=new Uint16Array(x.length);for(let i=0;i<x.length;i++)y[i]=x[i];return y;};
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,I);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,u16(new Uint32Array(ix)),gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,u16(new Uint32Array(lx)),gl.STATIC_DRAW);
+  }
+  requestAnimationFrame(F);
+  </script>
 
   <footer role="contentinfo">
     <hr aria-hidden="true">
