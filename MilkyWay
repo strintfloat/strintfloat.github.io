@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Low‑Scale Milky Way – WebGL (Three.js)</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #03040a; color: #e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; }
+    #app { position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 340px; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    #panel { border-left: 1px solid #1b1f2a; background: #0a0d16; padding: 14px; overflow: auto; }
+    h1 { font-size: 16px; margin: 0 0 8px; font-weight: 600; color: #bfc9ff; }
+    .sub { font-size: 12px; color: #8b93b8; margin: 0 0 16px; line-height: 1.4; }
+    .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; margin: 10px 0; }
+    label { font-size: 12px; color: #aeb6da; }
+    input[type="range"] { width: 170px; }
+    .value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #cdd6f4; }
+    .note { font-size: 11px; color: #7c86ad; margin-top: 12px; line-height: 1.4; }
+    .btn { margin-top: 12px; background: #1a2340; color: #dbe1ff; border: 1px solid #2a355f; padding: 8px 10px; border-radius: 10px; cursor: pointer; }
+    .btn:hover { filter: brightness(1.08); }
+    details.testlog { margin-top: 16px; border-top: 1px solid #1b1f2a; padding-top: 10px; }
+    .pass { color: #77ff77; }
+    .fail { color: #ff7777; }
+    @media (max-width: 900px){ #app { grid-template-columns: 1fr; } #panel { position: fixed; right: 0; top: 0; width: 100%; height: auto; border-left: 0; border-top: 1px solid #1b1f2a; } }
+  </style>
+  <!-- Import map resolves bare specifiers like "three" used by example modules -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/": "https://unpkg.com/three@0.160.0/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="canvas"></canvas>
+    <div id="panel">
+      <h1>Milky Way (Scaled Model)</h1>
+      <p class="sub">Particle-based spiral disk + bulge. 1 unit ≈ 1 kiloparsec. Approximate morphology only.</p>
+
+      <div class="row"><label>Stars</label>
+        <input id="stars" type="range" min="10000" max="120000" step="1000" value="40000"/>
+        <span class="value" id="v-stars">40000</span>
+      </div>
+
+      <div class="row"><label>Arms</label>
+        <input id="arms" type="range" min="2" max="6" step="1" value="4"/>
+        <span class="value" id="v-arms">4</span>
+      </div>
+
+      <div class="row"><label>Radius (kpc)</label>
+        <input id="radius" type="range" min="10" max="60" step="1" value="26"/>
+        <span class="value" id="v-radius">26</span>
+      </div>
+
+      <div class="row"><label>Thickness (kpc σ)</label>
+        <input id="thickness" type="range" min="0.1" max="2.5" step="0.1" value="0.6"/>
+        <span class="value" id="v-thickness">0.6</span>
+      </div>
+
+      <div class="row"><label>Arm Twist (rad)</label>
+        <input id="twist" type="range" min="1" max="10" step="0.1" value="6.0"/>
+        <span class="value" id="v-twist">6.0</span>
+      </div>
+
+      <div class="row"><label>Clumpiness</label>
+        <input id="clump" type="range" min="0" max="1.5" step="0.05" value="0.35"/>
+        <span class="value" id="v-clump">0.35</span>
+      </div>
+
+      <div class="row"><label>Rotation</label>
+        <input id="spin" type="range" min="-0.1" max="0.1" step="0.001" value="0.007"/>
+        <span class="value" id="v-spin">0.007</span>
+      </div>
+
+      <button id="regenerate" class="btn">Regenerate</button>
+      <button id="reset" class="btn">Reset View</button>
+
+      <p class="note">Controls: drag to orbit, scroll to zoom, right-drag to pan. Use Regenerate after parameter changes for a new stochastic layout.</p>
+
+      <details class="testlog" open>
+        <summary>Self-tests</summary>
+        <ul id="tests" style="padding-left:18px;margin:8px 0 0 0"></ul>
+      </details>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+    // ---------- Test Helpers ----------
+    function logTest(ok, msg){
+      const li = document.createElement('li');
+      li.textContent = (ok? 'PASS: ' : 'FAIL: ') + msg;
+      li.className = ok? 'pass' : 'fail';
+      document.getElementById('tests').appendChild(li);
+      if(!ok) console.error(msg);
+    }
+
+    // ---------- Utility ----------
+    const randn = (() => { // Gaussian via Box-Muller
+      let spare = null;
+      return () => {
+        if (spare !== null) { const v = spare; spare = null; return v; }
+        let u = 0, v = 0; while (u === 0) u = Math.random(); while (v === 0) v = Math.random();
+        const mag = Math.sqrt(-2.0 * Math.log(u));
+        const z0 = mag * Math.cos(2*Math.PI*v);
+        const z1 = mag * Math.sin(2*Math.PI*v);
+        spare = z1; return z0;
+      };
+    })();
+
+    function clamp(x,min,max){ return Math.min(max, Math.max(min,x)); }
+
+    function makeDiscTexture(size=128){
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+      g.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(0,0,size,size);
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearMipMapLinearFilter; tex.magFilter = THREE.LinearFilter;
+      tex.anisotropy = 8; tex.needsUpdate = true; return tex;
+    }
+
+    // ---------- Scene ----------
+    const canvas = document.getElementById('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(canvas.clientWidth || canvas.parentElement.clientWidth, canvas.clientHeight || canvas.parentElement.clientHeight, false);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x03040a, 0.009);
+
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+    camera.position.set(0, 18, 70);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 10; controls.maxDistance = 400;
+
+    // Distant star background
+    const bgGeom = new THREE.BufferGeometry();
+    const bgCount = 3000;
+    const bgPos = new Float32Array(bgCount*3);
+    for(let i=0;i<bgCount;i++){
+      const r = 600 + Math.random()*800; // far sphere
+      const u = Math.random();
+      const v = Math.random();
+      const theta = Math.acos(1 - 2*u);
+      const phi = 2*Math.PI*v;
+      bgPos[3*i]   = r*Math.sin(theta)*Math.cos(phi);
+      bgPos[3*i+1] = r*Math.cos(theta);
+      bgPos[3*i+2] = r*Math.sin(theta)*Math.sin(phi);
+    }
+    bgGeom.setAttribute('position', new THREE.BufferAttribute(bgPos,3));
+    const bgMat = new THREE.PointsMaterial({ size: 1.2, sizeAttenuation: true, color: 0x8899bb, transparent: true, opacity: 0.8 });
+    const backgroundStars = new THREE.Points(bgGeom, bgMat);
+    scene.add(backgroundStars);
+
+    // Galaxy containers
+    const galaxyGroup = new THREE.Group();
+    scene.add(galaxyGroup);
+
+    // Core glow (approximate bulge light)
+    const coreGeo = new THREE.SphereGeometry(2.0, 32, 32);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true, opacity: 0.35 });
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    core.scale.set(2.4, 1.6, 2.4);
+    galaxyGroup.add(core);
+
+    // Disc + arms + bulge point clouds
+    const starTexture = makeDiscTexture(128);
+
+    let galaxyPoints = null;
+    let bulgePoints = null;
+
+    const defaults = {
+      stars: 40000,
+      arms: 4,
+      radius: 26,        // ~26 kpc stellar disk radius
+      thickness: 0.6,    // vertical sigma in kpc
+      twist: 6.0,        // total radians of spiral winding
+      clump: 0.35,
+      spin: 0.007,
+    };
+
+    const ui = {
+      stars: document.getElementById('stars'),
+      arms: document.getElementById('arms'),
+      radius: document.getElementById('radius'),
+      thickness: document.getElementById('thickness'),
+      twist: document.getElementById('twist'),
+      clump: document.getElementById('clump'),
+      spin: document.getElementById('spin'),
+      v: {
+        stars: document.getElementById('v-stars'),
+        arms: document.getElementById('v-arms'),
+        radius: document.getElementById('v-radius'),
+        thickness: document.getElementById('v-thickness'),
+        twist: document.getElementById('v-twist'),
+        clump: document.getElementById('v-clump'),
+        spin: document.getElementById('v-spin'),
+      }
+    };
+
+    for (const key of Object.keys(ui.v)){
+      const input = ui[key] || ui.spin; // guard
+      if (input) input.addEventListener('input', ()=> ui.v[key].textContent = input.value);
+    }
+
+    function colorByRadius(rNorm){
+      // rNorm in [0,1]: inner warm -> outer cool, slight desaturation
+      const inner = new THREE.Color(1.0, 0.93, 0.75);
+      const mid   = new THREE.Color(0.8, 0.86, 1.0);
+      const outer = new THREE.Color(0.65, 0.80, 1.0);
+      const t = clamp(rNorm, 0, 1);
+      const c1 = t < 0.5 ? inner.clone().lerp(mid, t*2) : mid.clone().lerp(outer, (t-0.5)*2);
+      return c1;
+    }
+
+    function generateGalaxy({stars, arms, radius, thickness, twist, clump}){
+      if (galaxyPoints) { galaxyGroup.remove(galaxyPoints); galaxyPoints.geometry.dispose(); galaxyPoints.material.dispose(); galaxyPoints = null; }
+      if (bulgePoints) { galaxyGroup.remove(bulgePoints); bulgePoints.geometry.dispose(); bulgePoints.material.dispose(); bulgePoints = null; }
+
+      // Disc + arms
+      const discCount = Math.floor(stars * 0.88);
+      const pos = new Float32Array(discCount*3);
+      const col = new Float32Array(discCount*3);
+      const sizes = new Float32Array(discCount);
+
+      for (let i=0;i<discCount;i++){
+        const arm = Math.floor(Math.random()*arms);
+        const armAngle = (arm / arms) * Math.PI*2;
+        // Radial distribution bias toward center
+        const r = radius * Math.pow(Math.random(), 0.7);
+        // Spiral angle with twist + noise
+        let angle = armAngle + (r / radius) * twist;
+        // Tangential scatter + clumps
+        const spread = (1.2 - r/radius) * 0.45 + 0.05;
+        angle += randn() * spread;
+
+        // Clumpiness: add additional local radial noise
+        const cl = clump * (0.6 + 0.4*Math.random());
+        const rn = randn()*cl;
+        const x = (r + rn) * Math.cos(angle) + randn()*0.2;
+        const z = (r + rn) * Math.sin(angle) + randn()*0.2;
+        const y = randn() * thickness;
+
+        const idx = 3*i;
+        pos[idx] = x; pos[idx+1] = y; pos[idx+2] = z;
+        const c = colorByRadius(r / radius);
+        col[idx] = c.r; col[idx+1] = c.g; col[idx+2] = c.b;
+        sizes[i] = 0.9 + Math.random()*1.6;
+      }
+
+      const discGeo = new THREE.BufferGeometry();
+      discGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      discGeo.setAttribute('color', new THREE.BufferAttribute(col,3));
+      discGeo.setAttribute('size', new THREE.BufferAttribute(sizes,1));
+
+      const discMat = new THREE.PointsMaterial({
+        size: 1.4,
+        vertexColors: true,
+        map: starTexture,
+        alphaMap: starTexture,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        sizeAttenuation: true,
+      });
+
+      galaxyPoints = new THREE.Points(discGeo, discMat);
+      galaxyGroup.add(galaxyPoints);
+
+      // Bulge / stellar halo (spheroidal)
+      const bulgeCount = Math.max(2000, Math.floor(stars * 0.12));
+      const bpos = new Float32Array(bulgeCount*3);
+      const bcol = new Float32Array(bulgeCount*3);
+      const bsizes = new Float32Array(bulgeCount);
+
+      for(let i=0;i<bulgeCount;i++){
+        // Radius falloff (steep near center)
+        const br = Math.pow(Math.random(), 0.35) * (radius*0.35);
+        const theta = Math.acos(1 - 2*Math.random());
+        const phi = Math.random()*Math.PI*2;
+        const x = br*Math.sin(theta)*Math.cos(phi) * 1.0;
+        const y = br*Math.cos(theta) * 0.6; // oblate
+        const z = br*Math.sin(theta)*Math.sin(phi) * 1.0;
+        const idx = 3*i;
+        bpos[idx]=x; bpos[idx+1]=y; bpos[idx+2]=z;
+        const c = new THREE.Color(1.0, 0.92, 0.72);
+        bcol[idx]=c.r; bcol[idx+1]=c.g; bcol[idx+2]=c.b;
+        bsizes[i] = 1.0 + Math.random()*1.8;
+      }
+
+      const bulgeGeo = new THREE.BufferGeometry();
+      bulgeGeo.setAttribute('position', new THREE.BufferAttribute(bpos,3));
+      bulgeGeo.setAttribute('color', new THREE.BufferAttribute(bcol,3));
+      bulgeGeo.setAttribute('size', new THREE.BufferAttribute(bsizes,1));
+
+      const bulgeMat = new THREE.PointsMaterial({
+        size: 1.6,
+        vertexColors: true,
+        map: starTexture,
+        alphaMap: starTexture,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        sizeAttenuation: true,
+      });
+
+      bulgePoints = new THREE.Points(bulgeGeo, bulgeMat);
+      galaxyGroup.add(bulgePoints);
+    }
+
+    function resize(){
+      const w = renderer.domElement.clientWidth || renderer.domElement.parentElement.clientWidth;
+      const h = renderer.domElement.clientHeight || renderer.domElement.parentElement.clientHeight;
+      if (w && h){
+        if (renderer.getSize(new THREE.Vector2()).x !== w || renderer.getSize(new THREE.Vector2()).y !== h){
+          renderer.setSize(w, h, false);
+          camera.aspect = w / h; camera.updateProjectionMatrix();
+        }
+      }
+    }
+
+    // UI bindings
+    document.getElementById('regenerate').addEventListener('click', ()=>{
+      const params = {
+        stars: parseInt(ui.stars.value,10),
+        arms: parseInt(ui.arms.value,10),
+        radius: parseFloat(ui.radius.value),
+        thickness: parseFloat(ui.thickness.value),
+        twist: parseFloat(ui.twist.value),
+        clump: parseFloat(ui.clump.value),
+      };
+      generateGalaxy(params);
+      runSelfTests();
+    });
+
+    document.getElementById('reset').addEventListener('click', ()=>{
+      controls.reset();
+      camera.position.set(0, 18, 70);
+    });
+
+    // Initial generate
+    generateGalaxy(defaults);
+
+    // Animation
+    let spin = parseFloat(ui.spin.value);
+    ui.spin.addEventListener('input', ()=>{ spin = parseFloat(ui.spin.value); ui.v.spin.textContent = ui.spin.value; });
+
+    function animate(){
+      requestAnimationFrame(animate);
+      galaxyGroup.rotation.y += spin;
+      controls.update();
+      resize();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Handle DPR changes (guarded for browsers without this MQ)
+    try{
+      const mq = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      mq.addEventListener?.('change', ()=>{
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      });
+    }catch{ /* no-op */ }
+
+    // ---------- Self Tests ----------
+    function clearTests(){ const ul = document.getElementById('tests'); while(ul.firstChild) ul.removeChild(ul.firstChild); }
+
+    function runSelfTests(){
+      clearTests();
+      try {
+        logTest(!!THREE && typeof THREE.WebGLRenderer === 'function', 'THREE loaded and WebGLRenderer available');
+        logTest(typeof OrbitControls === 'function', 'OrbitControls imported');
+        logTest(!!scene && !!galaxyGroup, 'Scene and galaxy group exist');
+        logTest(galaxyGroup.children.some(o=>o === galaxyPoints) && galaxyPoints?.isPoints, 'Disc points geometry created');
+        logTest(galaxyGroup.children.some(o=>o === bulgePoints) && bulgePoints?.isPoints, 'Bulge points geometry created');
+        const expectedDisc = Math.floor((parseInt(ui.stars.value,10) || 0) * 0.88);
+        const actualDisc = galaxyPoints?.geometry?.attributes?.position?.count || 0;
+        logTest(Math.abs(actualDisc - expectedDisc) <= 1, `Disc star count ~= ${expectedDisc} (got ${actualDisc})`);
+        logTest(renderer.capabilities.isWebGL2 || renderer.capabilities.isWebGL, 'WebGL context available');
+      } catch (e){
+        logTest(false, 'Unexpected error in tests: ' + (e?.message || e));
+      }
+    }
+
+    runSelfTests();
+  </script>
+</body>
+</html>
