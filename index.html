@@ -124,67 +124,146 @@
   <!-- Klein Bottle Render -->
   <canvas id="klein"></canvas>
   <script>
-  const vs=`attribute vec3 a;uniform mat4 m;void main(){gl_Position=m*vec4(a,1.0);}`;
-  const fs=`precision mediump float;uniform vec4 c;void main(){gl_FragColor=c;}`;
-  const g=document.getElementById('klein'),gl=g.getContext('webgl',{antialias:true});
-  if(!gl)throw'WebGL unavailable';
-  function R(){const dpr=Math.min(window.devicePixelRatio||1,2);
-    g.width=innerWidth*dpr;g.height=400*dpr;
-    g.style.width='100%';g.style.height='400px';gl.viewport(0,0,g.width,g.height);}
-  addEventListener('resize',R);R();
-  function S(t,s){const h=gl.createShader(t);gl.shaderSource(h,s);gl.compileShader(h);
-    if(!gl.getShaderParameter(h,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(h);return h;}
-  const p=gl.createProgram();
-  gl.attachShader(p,S(gl.VERTEX_SHADER,vs));
-  gl.attachShader(p,S(gl.FRAGMENT_SHADER,fs));
-  gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw gl.getProgramInfoLog(p);
-  gl.useProgram(p);
-  const a=gl.getAttribLocation(p,'a'),uM=gl.getUniformLocation(p,'m'),uC=gl.getUniformLocation(p,'c');
-  function k(u,v){const A=2,cu2=Math.cos(u*.5),su2=Math.sin(u*.5),sv=Math.sin(v),s2v=Math.sin(2*v);
-    const R=A+cu2*sv-su2*s2v;return[R*Math.cos(u),R*Math.sin(u),su2*sv+cu2*s2v];}
-  const nu=96,nv=48,vx=new Float32Array((nu+1)*(nv+1)*3),ix=[],lx=[];
-  let p0=0;for(let i=0;i<=nu;i++){const u=i/nu*Math.PI*2;
-    for(let j=0;j<=nv;j++){const v=j/nv*Math.PI*2,[x,y,z]=k(u,v);vx[p0++]=x;vx[p0++]=y;vx[p0++]=z;}}
-  // normalize to fit view
-  (function(){let minX=1e9,minY=1e9,minZ=1e9,maxX=-1e9,maxY=-1e9,maxZ=-1e9;
-    for(let i=0;i<vx.length;i+=3){const x=vx[i],y=vx[i+1],z=vx[i+2];
-      if(x<minX)minX=x;if(y<minY)minY=y;if(z<minZ)minZ=z;
-      if(x>maxX)maxX=x;if(y>maxY)maxY=y;if(z>maxZ)maxZ=z;}
-    const cx=(minX+maxX)/2,cy=(minY+maxY)/2,cz=(minZ+maxZ)/2;
-    const s=1.8/Math.max(maxX-minX,Math.max(maxY-minY,maxZ-minZ));
-    for(let i=0;i<vx.length;i+=3){vx[i]=(vx[i]-cx)*s;vx[i+1]=(vx[i+1]-cy)*s;vx[i+2]=(vx[i+2]-cz)*s;}})();
-  const r=nv+1;for(let i=0;i<nu;i++)for(let j=0;j<nv;j++){const a=i*r+j,b=a+1,c=(i+1)*r+j,d=c+1;
-    ix.push(a,c,b,b,c,d);lx.push(a,b,b,d,d,c,c,a);}
-  const V=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,V);gl.bufferData(gl.ARRAY_BUFFER,vx,gl.STATIC_DRAW);
-  const I=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,I);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ix),gl.STATIC_DRAW);
-  const L=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(lx),gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,3,gl.FLOAT,false,0,0);
-  function M(){return[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];}
-  function P(f,a,n,F){const t=1/Math.tan(f/2),nf=1/(n-F),m=new Float32Array(16);
-    m[0]=t/a;m[5]=t;m[10]=(F+n)*nf;m[11]=-1;m[14]=2*F*n*nf;return m;}
-  function T(x,y,z){const m=M();m[12]=x;m[13]=y;m[14]=z;return m;}
-  function Rx(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0,0,c,-s,0,0,s,c,0,0,0,0,1]);}
-  function Ry(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,0,s,0,0,1,0,0,-s,0,c,0,0,0,0,1]);}
-  function MM(a,b){const o=new Float32Array(16);for(let r=0;r<4;r++)for(let c=0;c<4;c++)
-    o[r*4+c]=a[r*4+0]*b[0*4+c]+a[r*4+1]*b[1*4+c]+a[r*4+2]*b[2*4+c]+a[r*4+3]*b[3*4+c];return o;}
-  gl.enable(gl.DEPTH_TEST);gl.clearColor(.07,.07,.09,1);
-  function F(t){t*=.001;gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-    const asp=g.width/g.height,Pp=P(45*Math.PI/180,asp,.1,100),Vv=T(0,0,-3.5),
-    R=MM(Ry(t*.6),Rx(.6)),MVP=MM(R,MM(Vv,Pp));
-    gl.uniformMatrix4fv(uM,false,MVP);
-    gl.uniform4f(uC,.7,.85,1,1);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,I);
-    gl.drawElements(gl.TRIANGLES,ix.length,gl.UNSIGNED_INT,0);
-    gl.uniform4f(uC,0,0,0,1);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L);
-    gl.drawElements(gl.LINES,lx.length,gl.UNSIGNED_INT,0);
-    requestAnimationFrame(F);}
-  // Uint32 index fallback for WebGL1 without OES_element_index_uint
-  if(!gl.getExtension('OES_element_index_uint')){
-    const u16=x=>{const y=new Uint16Array(x.length);for(let i=0;i<x.length;i++)y[i]=x[i];return y;};
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,I);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,u16(new Uint32Array(ix)),gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,u16(new Uint32Array(lx)),gl.STATIC_DRAW);
+const vs=`attribute vec3 a;uniform mat4 m;void main(){gl_Position=m*vec4(a,1.0);}`;
+const fs=`precision mediump float;uniform vec4 c;void main(){gl_FragColor=c;}`;
+const g=document.getElementById('klein'),gl=g.getContext('webgl',{antialias:true});
+if(!gl)throw'WebGL unavailable';
+
+// canvas sizing
+function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);
+  g.width=innerWidth*dpr;g.height=400*dpr;
+  g.style.width='100%';g.style.height='400px';gl.viewport(0,0,g.width,g.height);}
+addEventListener('resize',resize);resize();
+
+// build program
+function sh(t,s){const h=gl.createShader(t);gl.shaderSource(h,s);gl.compileShader(h);
+  if(!gl.getShaderParameter(h,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(h);return h;}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));
+gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw gl.getProgramInfoLog(prog);
+gl.useProgram(prog);
+const a=gl.getAttribLocation(prog,'a'),uM=gl.getUniformLocation(prog,'m'),uC=gl.getUniformLocation(prog,'c');
+
+// geometry (thinner A)
+function k(u,v){const A=1.4,cu2=Math.cos(u*.5),su2=Math.sin(u*.5),sv=Math.sin(v),s2v=Math.sin(2*v);
+  const R=A+cu2*sv-su2*s2v;return[R*Math.cos(u),R*Math.sin(u),su2*sv+cu2*s2v];}
+const nu=96,nv=48,vx=new Float32Array((nu+1)*(nv+1)*3),ix=[],lx=[];
+let p0=0;for(let i=0;i<=nu;i++){const u=i/nu*Math.PI*2;
+  for(let j=0;j<=nv;j++){const v=j/nv*Math.PI*2,[x,y,z]=k(u,v);vx[p0++]=x;vx[p0++]=y;vx[p0++]=z;}}
+// normalize to fit view
+(function(){let minX=1e9,minY=1e9,minZ=1e9,maxX=-1e9,maxY=-1e9,maxZ=-1e9;
+  for(let i=0;i<vx.length;i+=3){const x=vx[i],y=vx[i+1],z=vx[i+2];
+    if(x<minX)minX=x;if(y<minY)minY=y;if(z<minZ)minZ=z;
+    if(x>maxX)maxX=x;if(y>maxY)maxY=y;if(z>maxZ)maxZ=z;}
+  const cx=(minX+maxX)/2,cy=(minY+maxY)/2,cz=(minZ+maxZ)/2;
+  const s=1.8/Math.max(maxX-minX,Math.max(maxY-minY,maxZ-minZ));
+  for(let i=0;i<vx.length;i+=3){vx[i]=(vx[i]-cx)*s;vx[i+1]=(vx[i+1]-cy)*s;vx[i+2]=(vx[i+2]-cz)*s;}})();
+const r=nv+1;for(let i=0;i<nu;i++)for(let j=0;j<nv;j++){const a=i*r+j,b=a+1,c=(i+1)*r+j,d=c+1;
+  ix.push(a,c,b,b,c,d);lx.push(a,b,b,d,d,c,c,a);}
+
+const VB=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,VB);gl.bufferData(gl.ARRAY_BUFFER,vx,gl.STATIC_DRAW);
+const IB=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,IB);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ix),gl.STATIC_DRAW);
+const LB=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,LB);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(lx),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,3,gl.FLOAT,false,0,0);
+// WebGL1 uint32 fallback
+if(!gl.getExtension('OES_element_index_uint')){
+  const u16=x=>{const y=new Uint16Array(x.length);for(let i=0;i<x.length;i++)y[i]=x[i];return y;};
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,IB);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,u16(new Uint32Array(ix)),gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,LB);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,u16(new Uint32Array(lx)),gl.STATIC_DRAW);
+}
+
+// math
+function I(){return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);}
+function P(f,a,n,F){const t=1/Math.tan(f/2),nf=1/(n-F),m=new Float32Array(16);
+  m[0]=t/a;m[5]=t;m[10]=(F+n)*nf;m[11]=-1;m[14]=2*F*n*nf;return m;}
+function T(x,y,z){const m=I();m[12]=x;m[13]=y;m[14]=z;return m;}
+function Rx(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]);}
+function Ry(a){const c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]);}
+function MM(A,B){const o=new Float32Array(16);for(let r=0;r<4;r++)for(let c=0;c<4;c++)
+  o[r*4+c]=A[r*4+0]*B[0*4+c]+A[r*4+1]*B[1*4+c]+A[r*4+2]*B[2*4+c]+A[r*4+3]*B[3*4+c];return o;}
+
+// interaction state + idle autorotate
+let yaw=0,pitch=0,panX=0,panY=0,dist=3.5;
+const fov=45*Math.PI/180,distMin=1.0,distMax=20.0;
+let dragging=false,panMode=false,lastX=0,lastY=0;
+let lastInteraction=0;
+const idleDelay=0;          // ms after last input before auto-rotate
+const autoYawPerSec=0.2;       // radians/sec
+g.style.cursor='grab';
+
+// helpers
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function mark(){lastInteraction=performance.now();}
+
+// event handlers
+g.addEventListener('mousedown',e=>{
+  dragging=true;lastX=e.clientX;lastY=e.clientY;
+  panMode=(e.button===2)||e.ctrlKey||e.metaKey;
+  g.style.cursor='grabbing';mark();
+});
+addEventListener('mouseup',()=>{dragging=false;g.style.cursor='grab';mark();});
+g.addEventListener('contextmenu',e=>e.preventDefault());
+g.addEventListener('mousemove',e=>{
+  if(!dragging)return;
+  const dx=e.clientX-lastX,dy=e.clientY-lastY;lastX=e.clientX;lastY=e.clientY;
+  const asp=g.width/g.height;
+  if(panMode){
+    const worldPerPixel=(2*dist*Math.tan(fov/2))/g.height;
+    panX-=dx*worldPerPixel*asp;
+    panY+=dy*worldPerPixel;
+  }else{
+    yaw+=dx*0.005;
+    pitch=clamp(pitch+dy*0.005,-1.5,1.5);
   }
-  requestAnimationFrame(F);
-  </script>
+  mark();
+});
+g.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const k=Math.exp(e.deltaY*0.0015);
+  dist=clamp(dist*k,distMin,distMax);
+  mark();
+},{passive:false});
+
+// render
+gl.enable(gl.DEPTH_TEST);gl.clearColor(.07,.07,.09,1);
+let prevT=null;
+function frame(t){
+  if(prevT===null)prevT=t;
+  const dt=(t-prevT)/1000;prevT=t;
+
+  // idle auto-rotation
+  if(!dragging && (t-lastInteraction)>idleDelay){
+    yaw+=autoYawPerSec*dt;
+  }
+
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  const asp=g.width/g.height;
+  const Pp=P(fov,asp,.1,100);
+  const R=MM(Ry(yaw),Rx(pitch));
+  const V=T(panX,panY,-dist);
+  const MVP=MM(R,MM(V,Pp));
+  gl.uniformMatrix4fv(uM,false,MVP);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, IB);
+for (let i=0; i<ix.length; i+=3) {
+  const phase = i / ix.length * 6.28318;
+  const r = 0.5 + 0.5*Math.sin(phase);
+  const g = 0.5 + 0.5*Math.sin(phase + 2.094);
+  const b = 0.5 + 0.5*Math.sin(phase + 4.188);
+  gl.uniform4f(uC, r, g, b, 1);
+  gl.drawElements(gl.TRIANGLES, 3, gl.UNSIGNED_INT, i*4);
+}
+
+// draw black outline
+gl.uniform4f(uC, 0, 0, 0, 1);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, LB);
+gl.drawElements(gl.LINES, lx.length, gl.UNSIGNED_INT, 0);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+
 
   <footer role="contentinfo">
     <hr aria-hidden="true">
