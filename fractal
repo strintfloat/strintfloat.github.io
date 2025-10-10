@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mandelbrot — Seahorse Valley (WebGL2)</title>
+<style>
+  :root{ --bg:#0a0a0a; --fg:#e5e5e5; --mut:#a3a3a3; --panel:#171717; --panel2:#111; --accent:#404040; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--fg); font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+  .row{ display:grid; grid-template-columns: 1fr; gap:.75rem; }
+  @media (min-width: 960px){ .row{ grid-template-columns: 1fr auto; } }
+  header{ display:flex; align-items:center; gap:1rem; padding:.75rem 1rem; border-bottom:1px solid #262626; background:var(--panel); }
+  header .title{ font-weight:600; }
+  header .spacer{ flex:1 1 auto; }
+  header .stat{ font-size:.9rem; opacity:.9; }
+  header .group{ display:flex; align-items:center; gap:.5rem; }
+  header button{ background:#262626; border:0; color:var(--fg); padding:.4rem .75rem; border-radius:.6rem; cursor:pointer; }
+  header button:hover{ background:#333; }
+  main{ position:relative; }
+  canvas{ display:block; width:100%; height:70vh; background: black; }
+  .hint{ position:absolute; left:.75rem; bottom:.75rem; font-size:.75rem; background:rgba(0,0,0,.6); padding:.25rem .5rem; border-radius:.4rem; pointer-events:none; }
+  .controls{ display:grid; grid-template-columns: repeat(1, minmax(0,1fr)); gap:1rem; padding:1rem; border-top:1px solid #262626; background:var(--panel); }
+  @media (min-width: 900px){ .controls{ grid-template-columns: repeat(6, minmax(0,1fr)); } }
+  .card{ background:var(--panel2); border:1px solid #262626; border-radius:.6rem; padding:.75rem; }
+  .card h3{ margin:.2rem 0 .5rem 0; font-size:.9rem; color:var(--mut); font-weight:600; }
+  .rowflex{ display:flex; gap:.5rem; flex-wrap:wrap; }
+  .pill{ background:#262626; padding:.25rem .5rem; border-radius:.4rem; cursor:pointer; }
+  .pill.active{ background:#3a3a3a; }
+  input[type="range"]{ width:100%; }
+  .mono{ font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  .small{ font-size:.8rem; opacity:.8; margin-top:.25rem; }
+  label{ opacity:.8; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="title">Mandelbrot — Seahorse Valley</div>
+    <div class="spacer"></div>
+    <div class="stat mono">Iter: <span id="iterOut">—</span></div>
+    <div class="stat mono">Zoom: <span id="zoomOut">—</span></div>
+    <div class="group">
+      <label>Pixel Ratio</label>
+      <input id="pixelRatio" type="range" min="1" max="3" step="0.5" />
+      <span class="mono" id="prOut"></span>
+    </div>
+    <button id="pauseBtn">Pause</button>
+    <button id="resetBtn">Reset</button>
+  </header>
+
+  <main>
+    <canvas id="glCanvas"></canvas>
+    <div class="hint">Pan: drag • Zoom: wheel • Reset preserves subject framing</div>
+  </main>
+
+  <section class="controls">
+    <div class="card">
+      <h3>Iterations</h3>
+      <div class="rowflex">
+        <span id="autoBtn" class="pill active">Auto</span>
+        <span id="manualBtn" class="pill">Manual</span>
+      </div>
+      <input id="iterSlider" type="range" min="200" max="20000" step="100" />
+      <div class="small mono"><span id="iterVal"></span> iters</div>
+    </div>
+
+    <div class="card">
+      <h3>Palette Mode</h3>
+      <input id="paletteSlider" type="range" min="0" max="2" step="1" />
+      <div class="small mono">Mode #<span id="paletteVal"></span></div>
+    </div>
+
+    <div class="card">
+      <h3>DE Strength</h3>
+      <input id="deSlider" type="range" min="0" max="1" step="0.01" />
+      <div class="small mono" id="deVal"></div>
+      <h3 style="margin-top:.75rem">Ambient Occlusion</h3>
+      <input id="aoSlider" type="range" min="0" max="2" step="0.01" />
+      <div class="small mono" id="aoVal"></div>
+    </div>
+
+    <div class="card">
+      <h3>Orbit Trap</h3>
+      <div class="rowflex">
+        <span id="trapOn" class="pill active">On</span>
+        <span id="trapOff" class="pill">Off</span>
+      </div>
+      <input id="trapMix" type="range" min="0" max="1" step="0.01" />
+      <div class="small mono">Mix <span id="trapVal"></span></div>
+    </div>
+
+    <div class="card">
+      <h3>AA Jitter</h3>
+      <div class="rowflex">
+        <span id="aaOn" class="pill active">On</span>
+        <span id="aaOff" class="pill">Off</span>
+      </div>
+      <input id="aaRadius" type="range" min="0" max="1" step="0.01" />
+      <div class="small mono">Radius <span id="aaVal"></span></div>
+    </div>
+
+    <div class="card">
+      <h3>Gamma</h3>
+      <input id="gammaSlider" type="range" min="0.5" max="2.0" step="0.01" />
+      <div class="small mono" id="gammaVal"></div>
+    </div>
+  </section>
+
+<script>
+(() => {
+  const canvas = document.getElementById('glCanvas');
+  const gl = canvas.getContext('webgl2', {antialias:false, premultipliedAlpha:false});
+  if(!gl){ alert('WebGL2 not supported.'); return; }
+
+  // UI elements
+  const iterOut = document.getElementById('iterOut');
+  const zoomOut = document.getElementById('zoomOut');
+  const prSlider = document.getElementById('pixelRatio');
+  const prOut = document.getElementById('prOut');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const autoBtn = document.getElementById('autoBtn');
+  const manualBtn = document.getElementById('manualBtn');
+  const iterSlider = document.getElementById('iterSlider');
+  const iterVal = document.getElementById('iterVal');
+  const paletteSlider = document.getElementById('paletteSlider');
+  const paletteVal = document.getElementById('paletteVal');
+  const deSlider = document.getElementById('deSlider');
+  const deVal = document.getElementById('deVal');
+  const aoSlider = document.getElementById('aoSlider');
+  const aoVal = document.getElementById('aoVal');
+  const trapOn = document.getElementById('trapOn');
+  const trapOff = document.getElementById('trapOff');
+  const trapMix = document.getElementById('trapMix');
+  const trapVal = document.getElementById('trapVal');
+  const aaOn = document.getElementById('aaOn');
+  const aaOff = document.getElementById('aaOff');
+  const aaRadius = document.getElementById('aaRadius');
+  const aaVal = document.getElementById('aaVal');
+  const gammaSlider = document.getElementById('gammaSlider');
+  const gammaVal = document.getElementById('gammaVal');
+
+  // State
+  const INITIAL_CENTER = { x: -0.743643887037151, y: 0.13182590420533 };
+  const INITIAL_SCALE = 1.8e-6; // world units per screen height
+  const INITIAL_ITER = 1800;
+
+  const state = {
+    centerX: INITIAL_CENTER.x,
+    centerY: INITIAL_CENTER.y,
+    scale: INITIAL_SCALE,
+    aspect: 1,
+    iterMode: 'auto',
+    maxIter: INITIAL_ITER,
+    manualIter: INITIAL_ITER,
+    paletteMode: 1,
+    useDE: 1,
+    deStrength: 1.0,
+    aoStrength: 1.0,
+    orbitTrap: 1,
+    trapStrength: 0.75,
+    aaJitter: 1,
+    jitterRadius: 0.35,
+    gamma: 0.85,
+    time: 0,
+    dragging: false,
+    lastX: 0, lastY: 0,
+    paused: false,
+    pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  };
+
+  // Init UI values
+  prSlider.value = state.pixelRatio;
+  prOut.textContent = state.pixelRatio.toFixed(1) + 'x';
+  iterSlider.value = state.manualIter;
+  iterVal.textContent = state.manualIter;
+  paletteSlider.value = state.paletteMode; paletteVal.textContent = state.paletteMode;
+  deSlider.value = state.deStrength; deVal.textContent = state.deStrength.toFixed(2);
+  aoSlider.value = state.aoStrength; aoVal.textContent = state.aoStrength.toFixed(2);
+  trapMix.value = state.trapStrength; trapVal.textContent = state.trapStrength.toFixed(2);
+  aaRadius.value = state.jitterRadius; aaVal.textContent = state.jitterRadius.toFixed(2);
+  gammaSlider.value = state.gamma; gammaVal.textContent = state.gamma.toFixed(2);
+
+  function setPillActive(onEl, offEl, active){
+    if(active){ onEl.classList.add('active'); offEl.classList.remove('active'); }
+    else { onEl.classList.remove('active'); offEl.classList.add('active'); }
+  }
+  setPillActive(autoBtn, manualBtn, true);
+  setPillActive(trapOn, trapOff, state.orbitTrap===1);
+  setPillActive(aaOn, aaOff, state.aaJitter===1);
+
+  // Shaders
+  const vertSrc = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 a_pos;
+  out vec2 v_uv;
+  void main(){ v_uv = (a_pos + 1.0) * 0.5; gl_Position = vec4(a_pos,0.0,1.0); }`;
+
+  const fragSrc = `#version 300 es
+  precision highp float;
+  out vec4 outColor; in vec2 v_uv;
+  uniform vec2 u_center; uniform float u_scale; uniform float u_aspect; uniform int u_maxIter;
+  uniform int u_paletteMode; uniform int u_useDE; uniform float u_deStrength; uniform float u_aoStrength;
+  uniform int u_orbitTrap; uniform float u_trapStrength; uniform int u_aaJitter; uniform float u_jitterRadius;
+  uniform float u_gamma; uniform float u_time;
+  float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  vec3 palette(float t){ float a=.5+.5*sin(6.28318*(t+0.00)); float b=.5+.5*sin(6.28318*(t+0.25)); float c=.5+.5*sin(6.28318*(t+0.50));
+    vec3 p1=vec3(a,b,c), p2=vec3(b,c,a), p3=vec3(c,a,b); if(u_paletteMode==0) return mix(vec3(0.05,0.02,0.08), vec3(0.9,0.85,0.95), t);
+    if(u_paletteMode==1) return 0.6*p1+0.4*p2; if(u_paletteMode==2) return mix(p1,p3,0.5); return p1; }
+  float orbitTrap(vec2 z){ float r2=dot(z,z); return min(min(abs(z.x),abs(z.y)), sqrt(r2)); }
+  vec4 iterateMandelbrot(vec2 c){ vec2 z=vec2(0.0); vec2 dz=vec2(0.0); float sm=0.0; float trapMin=1e9; int i; for(i=0;i<u_maxIter;i++){
+      vec2 z2=vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y); dz=vec2(2.0*(z.x*dz.x - z.y*dz.y) + 1.0, 2.0*(z.x*dz.y + z.y*dz.x));
+      z=z2+c; float r2=dot(z,z); trapMin = (u_orbitTrap==1) ? min(trapMin, orbitTrap(z)) : trapMin; if(r2>1.0e6) break; sm += exp(-sqrt(r2)); }
+    float nu=float(i); float r=length(z); if(i<u_maxIter){ float log_zn=log(r); float nuAdj=log(log_zn/log(2.0))/log(2.0); nu=float(i)+1.0-nuAdj; }
+    float de=0.0; if(u_useDE==1 && i<u_maxIter){ float r=length(z); float dzLen=length(dz); de=0.5*r*log(r)/dzLen; } return vec4(nu, sm, de, trapMin); }
+  vec3 shade(vec2 c, vec4 itRes, vec2 px){ float nu=itRes.x; float de=itRes.z; float trap=itRes.w; vec3 col=palette(fract(0.02*nu));
+    if(u_orbitTrap==1){ float trapTint=exp(-10.0*trap); col=mix(col, vec3(0.95,0.85,0.2), clamp(u_trapStrength*trapTint,0.0,1.0)); }
+    if(u_useDE==1 && de>0.0){ vec2 h=vec2(2.0*px.x, 2.0*px.y); vec4 rX=iterateMandelbrot(c+vec2(h.x,0.0)); vec4 lX=iterateMandelbrot(c-vec2(h.x,0.0));
+      vec4 rY=iterateMandelbrot(c+vec2(0.0,h.y)); vec4 lY=iterateMandelbrot(c-vec2(0.0,h.y)); float deX=(rX.z-lX.z); float deY=(rY.z-lY.z);
+      vec3 N=normalize(vec3(-deX,-deY,1.0)); vec3 L=normalize(vec3(0.6,0.5,0.6)); float diff=clamp(dot(N,L),0.0,1.0); float ao=1.0/(1.0+(8.0*u_aoStrength)*de);
+      col = mix(col, col*(0.25+0.75*diff)*ao + 0.02, clamp(u_deStrength,0.0,1.0)); }
+    if(nu>=float(u_maxIter)){ col=vec3(0.02,0.02,0.03); } return col; }
+  void main(){ float scaleY=u_scale, scaleX=u_scale*u_aspect; vec2 jitter=vec2(0.0); if(u_aaJitter==1){ float j=hash12(v_uv+vec2(u_time,0.123)); float a=6.28318*j; jitter=u_jitterRadius*vec2(cos(a),sin(a)); }
+    vec2 uv=v_uv + jitter/vec2(800.0); vec2 c=vec2(u_center.x + (uv.x*2.0-1.0)*scaleX, u_center.y + (uv.y*2.0-1.0)*scaleY);
+    vec4 itRes=iterateMandelbrot(c); vec3 col=shade(c,itRes,vec2(scaleX,scaleY)); col=pow(col, vec3(1.0/u_gamma)); outColor=vec4(col,1.0); }`;
+
+  function compile(gl, type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPLETE_STATUS) && !gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+      console.error(gl.getShaderInfoLog(s)); throw new Error('Shader compile error'); }
+    return s; }
+
+  const vs = compile(gl, gl.VERTEX_SHADER, vertSrc);
+  const fs = compile(gl, gl.FRAGMENT_SHADER, fragSrc);
+  const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(prog)); throw new Error('Program link error'); }
+
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const quad = new Float32Array([ -1,-1, 1,-1, -1,1,  -1,1, 1,-1, 1,1 ]);
+  const vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  const u = {
+    u_center: gl.getUniformLocation(prog, 'u_center'),
+    u_scale: gl.getUniformLocation(prog, 'u_scale'),
+    u_aspect: gl.getUniformLocation(prog, 'u_aspect'),
+    u_maxIter: gl.getUniformLocation(prog, 'u_maxIter'),
+    u_paletteMode: gl.getUniformLocation(prog, 'u_paletteMode'),
+    u_useDE: gl.getUniformLocation(prog, 'u_useDE'),
+    u_deStrength: gl.getUniformLocation(prog, 'u_deStrength'),
+    u_aoStrength: gl.getUniformLocation(prog, 'u_aoStrength'),
+    u_orbitTrap: gl.getUniformLocation(prog, 'u_orbitTrap'),
+    u_trapStrength: gl.getUniformLocation(prog, 'u_trapStrength'),
+    u_aaJitter: gl.getUniformLocation(prog, 'u_aaJitter'),
+    u_jitterRadius: gl.getUniformLocation(prog, 'u_jitterRadius'),
+    u_gamma: gl.getUniformLocation(prog, 'u_gamma'),
+    u_time: gl.getUniformLocation(prog, 'u_time'),
+  };
+
+  function resize(){
+    const box = canvas.getBoundingClientRect();
+    const w = Math.max(320, Math.floor(box.width * state.pixelRatio));
+    const h = Math.max(240, Math.floor(box.height * state.pixelRatio));
+    if(canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h; state.aspect = w/h; gl.viewport(0,0,w,h);
+    }
+  }
+
+  function autoIterForScale(scale){ const depth = Math.log10(1.0/scale); return Math.floor(400 + 180 * depth); }
+  function effectiveIter(){ return (state.iterMode==='manual') ? Math.max(100, Math.min(20000, Math.floor(state.manualIter))) : Math.min(20000, autoIterForScale(state.scale)); }
+
+  // Event wiring
+  pauseBtn.onclick = () => { state.paused = !state.paused; pauseBtn.textContent = state.paused ? 'Resume' : 'Pause'; };
+  resetBtn.onclick = () => { state.centerX = INITIAL_CENTER.x; state.centerY = INITIAL_CENTER.y; state.scale = INITIAL_SCALE; state.iterMode='auto'; };
+  prSlider.oninput = () => { state.pixelRatio = parseFloat(prSlider.value); prOut.textContent = state.pixelRatio.toFixed(1)+'x'; };
+
+  autoBtn.onclick = () => { state.iterMode='auto'; setPillActive(autoBtn, manualBtn, true); };
+  manualBtn.onclick = () => { state.iterMode='manual'; setPillActive(autoBtn, manualBtn, false); };
+  iterSlider.oninput = () => { state.manualIter = parseInt(iterSlider.value,10); iterVal.textContent = state.manualIter; };
+
+  paletteSlider.oninput = () => { state.paletteMode = parseInt(paletteSlider.value,10); paletteVal.textContent = state.paletteMode; };
+  deSlider.oninput = () => { state.deStrength = parseFloat(deSlider.value); deVal.textContent = state.deStrength.toFixed(2); };
+  aoSlider.oninput = () => { state.aoStrength = parseFloat(aoSlider.value); aoVal.textContent = state.aoStrength.toFixed(2); };
+
+  trapOn.onclick = () => { state.orbitTrap=1; setPillActive(trapOn, trapOff, true); };
+  trapOff.onclick = () => { state.orbitTrap=0; setPillActive(trapOn, trapOff, false); };
+  trapMix.oninput = () => { state.trapStrength = parseFloat(trapMix.value); trapVal.textContent = state.trapStrength.toFixed(2); };
+
+  aaOn.onclick = () => { state.aaJitter=1; setPillActive(aaOn, aaOff, true); };
+  aaOff.onclick = () => { state.aaJitter=0; setPillActive(aaOn, aaOff, false); };
+  aaRadius.oninput = () => { state.jitterRadius = parseFloat(aaRadius.value); aaVal.textContent = state.jitterRadius.toFixed(2); };
+
+  gammaSlider.oninput = () => { state.gamma = parseFloat(gammaSlider.value); gammaVal.textContent = state.gamma.toFixed(2); };
+
+  // Mouse pan/zoom
+  canvas.addEventListener('mousedown', (e)=>{ state.dragging=true; state.lastX=e.clientX; state.lastY=e.clientY; e.preventDefault(); });
+  window.addEventListener('mousemove', (e)=>{ if(!state.dragging) return; const dx=e.clientX-state.lastX; const dy=e.clientY-state.lastY; const rect=canvas.getBoundingClientRect(); const px = dx*state.scale*state.aspect*2.0/rect.width; const py = dy*state.scale*2.0/rect.height; state.centerX -= px; state.centerY += py; state.lastX=e.clientX; state.lastY=e.clientY; });
+  window.addEventListener('mouseup', ()=>{ state.dragging=false; });
+  canvas.addEventListener('wheel', (e)=>{ e.preventDefault(); const rect=canvas.getBoundingClientRect(); const mx=(e.clientX-rect.left)/rect.width; const my=(e.clientY-rect.top)/rect.height; const cx=state.centerX + (mx*2.0-1.0)*state.scale*state.aspect; const cy=state.centerY + (my*2.0-1.0)*state.scale; const zoomFactor=Math.pow(1.08, -e.deltaY/50); const newScale=state.scale/zoomFactor; state.centerX = cx - (mx*2.0-1.0)*newScale*state.aspect; state.centerY = cy - (my*2.0-1.0)*newScale; state.scale = newScale; // guardrails around subject
+    const gx=INITIAL_CENTER.x, gy=INITIAL_CENTER.y; const maxOffX=0.02, maxOffY=0.02; state.centerX=Math.min(gx+maxOffX, Math.max(gx-maxOffX, state.centerX)); state.centerY=Math.min(gy+maxOffY, Math.max(gy-maxOffY, state.centerY)); }, {passive:false});
+
+  // Render loop
+  let last = performance.now();
+  function draw(t){
+    const dt = Math.max(0,(t-last)*0.001); last=t; if(!state.paused){ state.time += dt; }
+    resize();
+    state.scale = Math.max(1e-14, Math.min(state.scale, 0.005));
+    state.maxIter = effectiveIter();
+
+    gl.useProgram(prog);
+    gl.uniform2f(u.u_center, state.centerX, state.centerY);
+    gl.uniform1f(u.u_scale, state.scale);
+    gl.uniform1f(u.u_aspect, state.aspect);
+    gl.uniform1i(u.u_maxIter, state.maxIter);
+    gl.uniform1i(u.u_paletteMode, state.paletteMode|0);
+    gl.uniform1i(u.u_useDE, state.useDE|0);
+    gl.uniform1f(u.u_deStrength, state.deStrength);
+    gl.uniform1f(u.u_aoStrength, state.aoStrength);
+    gl.uniform1i(u.u_orbitTrap, state.orbitTrap|0);
+    gl.uniform1f(u.u_trapStrength, state.trapStrength);
+    gl.uniform1i(u.u_aaJitter, state.aaJitter|0);
+    gl.uniform1f(u.u_jitterRadius, state.jitterRadius);
+    gl.uniform1f(u.u_gamma, state.gamma);
+    gl.uniform1f(u.u_time, state.time);
+
+    gl.bindVertexArray(vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    iterOut.textContent = String(state.maxIter);
+    zoomOut.textContent = (1.0/state.scale).toExponential(2);
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
