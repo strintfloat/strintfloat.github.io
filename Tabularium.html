@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Tabularium OS — Launcher Permanent, Terminal Visible, Only Terminal+Clock Active</title>
+<style>
+  html,body{height:100%;margin:0;background:#000;overflow:hidden}
+  #gl,#ui{position:fixed;left:0;top:0;width:100vw;height:100vh;display:block}
+  #overlay{
+    position:fixed;left:0;top:0;right:0;max-height:38vh;overflow:auto;
+    background:#111;color:#e8e8e8;font:12px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial;
+    padding:6px 10px;border-bottom:1px solid #333;white-space:pre-wrap;pointer-events:none
+  }
+</style>
+<div id="overlay"></div>
+<canvas id="gl"></canvas>
+<canvas id="ui"></canvas>
+<script>
+/* ========= diagnostics ========= */
+const LogEl=document.getElementById('overlay');
+const log=(m)=>{ LogEl.textContent+=m+"\n"; };
+
+/* ========= storage ========= */
+const Store={get:(k,d)=>{try{const v=localStorage.getItem("tabos:"+k);return v?JSON.parse(v):d}catch{return d}},
+             set:(k,v)=>{try{localStorage.setItem("tabos:"+k,JSON.stringify(v))}catch{}},
+             del:(k)=>{try{localStorage.removeItem("tabos:"+k)}catch{}}};
+
+/* ========= canvases & UI state ========= */
+const glCanvas=document.getElementById('gl');
+const uiCanvas=document.getElementById('ui');
+const UI={
+  ctx:uiCanvas.getContext('2d'),
+  scale:1,
+  windows:[],        // z-order = array order; last = top
+  winById:new Map(), // id->window
+  activeId:null,
+  taskbar:{h:44},
+  colors:{chrome:'#e6dcc6', shadow:'rgba(0,0,0,.25)', title:'#3a2b17', text:'#1a1a1a',
+          task:'#f0e8d6', tile:'#fffaf0', tileStroke:'#d5c7a6', panel:'#fffdf5', note:'#fff8ea', accent:'#8f6a2b'}
+};
+const font=(n)=>`${n}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
+
+/* ========= focus ========= */
+const Focus={winId:null,target:null};
+function setFocus(id,target){ Focus.winId=id; Focus.target=target; render(); }
+function clearFocus(){ Focus.winId=null; Focus.target=null; render(); }
+
+/* ========= sizing ========= */
+function resizeAll(){
+  const dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
+  const w=innerWidth|0,h=innerHeight|0;
+  [glCanvas,uiCanvas].forEach(c=>{c.style.width=w+'px';c.style.height=h+'px';c.width=(w*dpr)|0;c.height=(h*dpr)|0;});
+  UI.scale=dpr; render();
+}
+addEventListener('resize',resizeAll,{passive:true});
+
+/* ========= background ========= */
+let gl=null;
+(function initBG(){
+  const attribs={antialias:true,alpha:false,powerPreference:'high-performance'};
+  try{gl=glCanvas.getContext('webgl2',attribs)||glCanvas.getContext('webgl',attribs);}catch{gl=null}
+  if(!gl){ log('WebGL unavailable — solid background'); return; }
+  function comp(t,s){const sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);
+    if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){log('Shader compile: '+gl.getShaderInfoLog(sh));throw 0} return sh;}
+  function link(vs,fs){const p=gl.createProgram();gl.attachShader(p,comp(gl.VERTEX_SHADER,vs));gl.attachShader(p,comp(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS)){log('Program link: '+gl.getProgramInfoLog(p));throw 0} return p;}
+  const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]),gl.STATIC_DRAW);
+  const VS=`precision mediump float;attribute vec2 a;void main(){gl_Position=vec4(a,0.0,1.0);} `;
+  const FS=`precision mediump float;uniform vec2 u;uniform float t;
+  float n(vec2 p){return fract(sin(dot(p,vec2(41.3,289.1)))*48911.123);}
+  float f(vec2 p){vec2 i=floor(p),d=fract(p);float A=n(i),B=n(i+vec2(1,0)),C=n(i+vec2(0,1)),D=n(i+vec2(1,1));vec2 u2=d*d*(3.-2.*d);
+  return mix(A,B,u2.x)+(C-A)*u2.y*(1.-u2.x)+(D-B)*u2.x*u2.y;}
+  void main(){vec2 v=gl_FragCoord.xy/u;float m=f(v*3.0+vec2(t*.02,-t*.02))*0.05;vec3 base=vec3(0.94,0.90,0.80)+m;gl_FragColor=vec4(base,1.0);} `;
+  let prog; try{prog=link(VS,FS);}catch{prog=null}
+  const a=prog?gl.getAttribLocation(prog,'a'):-1, u=prog?gl.getUniformLocation(prog,'u'):null, ut=prog?gl.getUniformLocation(prog,'t'):null;
+  function frame(T){
+    gl.viewport(0,0,glCanvas.width,glCanvas.height);
+    if(prog){ gl.useProgram(prog); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
+      gl.uniform2f(u,glCanvas.width,glCanvas.height); gl.uniform1f(ut,T*0.001); gl.drawArrays(gl.TRIANGLES,0,6); }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ========= primitives ========= */
+const rectHit=(mx,my,x,y,w,h)=> mx>=x&&my>=y&&mx<=x+w&&my<=y+h;
+function roundRect(ctx,x,y,w,h,r,fill,stroke){
+  const rr=Math.min(r,w*.5,h*.5); ctx.beginPath();
+  ctx.moveTo(x+rr,y); ctx.arcTo(x+w,y,x+w,y+h,rr); ctx.arcTo(x+w,y+h,x,y+h,rr);
+  ctx.arcTo(x,y+h,x,y,rr); ctx.arcTo(x,y,x+w,y,rr);
+  if(fill){ctx.fillStyle=fill;ctx.fill();} if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}
+}
+function drawButton(ctx,x,y,w,h,label){
+  ctx.fillStyle='#efe6d1'; ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle='#b8aa8c'; ctx.strokeRect(x+0.5,y+0.5,w-1,h-1);
+  ctx.fillStyle='#372b16'; ctx.font=font(12); ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(label,x+w/2,y+h/2+0.5); ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+}
+
+/* ========= client rect ========= */
+const clientRect=(w)=>({x:w.x+12,y:w.y+44,w:w.w-24,h:w.h-56});
+const insideClient=(w,mx,my)=>{const r=clientRect(w); return rectHit(mx,my,r.x,r.y,r.w,r.h);};
+
+/* ========= panel ========= */
+function panel(ctx,w,cb){
+  const r=clientRect(w);
+  ctx.fillStyle=UI.colors.panel; ctx.fillRect(r.x,r.y,r.w,r.h);
+  ctx.save(); ctx.beginPath(); ctx.rect(r.x,r.y,r.w,r.h); ctx.clip();
+  cb && cb(r,w);
+  ctx.restore();
+}
+
+/* ========= WM ========= */
+function makeWindow(spec){
+  const id='w'+(Date.now()+Math.random()).toString(36).slice(2,8);
+  const w=Object.assign({id,title:'Window',x:80,y:80,w:560,h:380,appId:null,icon:'■',state:'normal',maximized:false,_cursor:'',permanent:false},spec);
+  UI.windows.push(w); UI.winById.set(id,w); bringToFront(id,false); render(); requestAnimationFrame(render); return w;
+}
+function bringToFront(id,doRender=true){
+  const arr=UI.windows; const i=arr.findIndex(x=>x.id===id); if(i<0) return;
+  const w=arr[i]; if(i!==arr.length-1){ arr.splice(i,1); arr.push(w); }
+  UI.activeId=id; if(doRender) render();
+}
+function closeWindow(id){
+  const w=UI.winById.get(id); if(!w) return;
+  if(w.permanent) return;
+  const arr=UI.windows; const i=arr.findIndex(x=>x.id===id); if(i>=0) arr.splice(i,1);
+  UI.winById.delete(id); if(UI.activeId===id) UI.activeId=null; if(Focus.winId===id) clearFocus(); render();
+}
+function minimizeWindow(id){ const w=UI.winById.get(id); if(!w||w.permanent) return; w.state='min'; if(Focus.winId===id) clearFocus(); render(); }
+function restoreWindow(id){ const w=UI.winById.get(id); if(!w) return; w.state='normal'; bringToFront(id); }
+function maximizeWindow(id){
+  const w=UI.winById.get(id); if(!w||w.permanent) return;
+  if(!w.maximized){
+    w._pre={x:w.x,y:w.y,w:w.w,h:w.h};
+    const dpr=UI.scale,W=uiCanvas.width/dpr,H=uiCanvas.height/dpr,tb=UI.taskbar.h;
+    w.x=8; w.y=8; w.w=W-16; w.h=H-tb-16; w.maximized=true;
+  }else{
+    const p=w._pre; w.x=p.x; w.y=p.y; w.w=p.w; w.h=p.h; w.maximized=false;
+  }
+  render();
+}
+
+/* ========= resize hit ========= */
+const RES={NONE:0,L:1,R:2,T:4,B:8};
+function hitResize(w,mx,my){ const M=6; let m=RES.NONE;
+  if(rectHit(mx,my,w.x,w.y,w.w,w.h)){
+    if(mx<=w.x+M) m|=RES.L; else if(mx>=w.x+w.w-M) m|=RES.R;
+    if(my<=w.y+M) m|=RES.T; else if(my>=w.y+w.h-M) m|=RES.B;
+  }
+  return m;
+}
+function cursorFor(m){
+  if(m==(RES.L|RES.T) || m==(RES.R|RES.B)) return 'nwse-resize';
+  if(m==(RES.R|RES.T) || m==(RES.L|RES.B)) return 'nesw-resize';
+  if(m&RES.L || m&RES.R) return 'ew-resize';
+  if(m&RES.T || m&RES.B) return 'ns-resize';
+  return '';
+}
+
+/* ========= Apps registry ========= */
+const Apps=new Map();
+
+/* ========= Notes ========= */
+Apps.set('notes',{name:'Notes',icon:'📝',launch:()=>{
+  const w=makeWindow({title:'Notes',w:560,h:380,appId:'notes',icon:'📝'}); w.text=Store.get('notes:text','');
+  w.onKey=(evt)=>{ if(evt.focus!=='notes') return;
+    if(evt.type==='char'){ w.text+=evt.ch; }
+    else if(evt.type==='key'){ if(evt.key==='Enter') w.text+='\n'; else if(evt.key==='Backspace') w.text=w.text.slice(0,-1); }
+    Store.set('notes:text',w.text); render();
+  };
+  w.onClick=(mx,my)=>{ if(insideClient(w,mx,my)) setFocus(w.id,'notes'); };
+  w.render=(ctx,win)=>panel(ctx,win,(r)=>{
+    ctx.fillStyle=UI.colors.note; ctx.fillRect(r.x,r.y,r.w,r.h);
+    ctx.fillStyle=UI.colors.text; ctx.font=font(14);
+    const words=(win.text||'').split(/\s+/); let line='', y=r.y+20, max=r.w-20, lh=18;
+    for(const word of words){ const t=line?line+' '+word:word; if(ctx.measureText(t).width>max){ ctx.fillText(line,r.x+10,y); y+=lh; line=word; } else line=t; }
+    if(line) ctx.fillText(line,r.x+10,y);
+    if(Focus.winId===win.id && Focus.target==='notes'){ ctx.strokeStyle=UI.colors.accent; ctx.strokeRect(r.x+0.5,r.y+0.5,r.w-1,r.h-1); }
+  });
+}});
+
+/* ========= Clock ========= */
+Apps.set('clock',{name:'Clock',icon:'🕰️',launch:()=>{
+  const w=makeWindow({title:'Clock',w:260,h:160,appId:'clock',icon:'🕰️'});
+  w.render=(ctx,win)=>panel(ctx,win,(r)=>{ ctx.fillStyle=UI.colors.text; ctx.font=font(28); ctx.fillText(new Date().toLocaleTimeString(), r.x+12, r.y+44); });
+}});
+
+/* ========= Files + Editor ========= */
+Apps.set('files',{name:'Files',icon:'📁',launch:()=>{
+  const w=makeWindow({title:'Files',w:560,h:360,appId:'files',icon:'📁'});
+  const refresh=()=>{ w.entries=Object.keys(localStorage).filter(k=>k.startsWith('fs:')).map(k=>({key:k,name:k.slice(3)})).sort((a,b)=>a.name.localeCompare(b.name)); };
+  const create=()=>{ const name=prompt('New file name:'); if(!name) return; const key='fs:'+name; if(localStorage.getItem(key)){alert('Exists');return;} localStorage.setItem(key,''); refresh(); render(); };
+  const openFile=(e)=>{
+    const data=localStorage.getItem(e.key)||''; const ed=makeWindow({title:'Editor — '+e.name,w:560,h:360,appId:'editor',icon:'📄'}); ed.text=data; ed.key=e.key;
+    ed.onKey=(evt)=>{ if(evt.focus!=='editor') return; if(evt.type==='char'){ed.text+=evt.ch;} else if(evt.type==='key'){ if(evt.key==='Enter') ed.text+='\n'; else if(evt.key==='Backspace') ed.text=ed.text.slice(0,-1);} render(); };
+    ed.onClick=(mx,my)=>{ if(!insideClient(ed,mx,my)) return; const r=ed._saveRect; if(r && rectHit(mx,my,r.x,r.y,r.w,r.h)){ localStorage.setItem(ed.key,ed.text); } setFocus(ed.id,'editor'); };
+    ed.render=(ctx,win)=>panel(ctx,win,(r)=>{
+      ctx.fillStyle=UI.colors.note; ctx.fillRect(r.x,r.y,r.w,r.h);
+      ctx.fillStyle=UI.colors.text; ctx.font=font(14);
+      const words=(ed.text||'').split(/\s+/); let line='', y=r.y+20, max=r.w-20, lh=18;
+      for(const word of words){ const t=line?line+' '+word:word; if(ctx.measureText(t).width>max){ ctx.fillText(line,r.x+10,y); y+=lh; line=word; } else line=t; }
+      if(line) ctx.fillText(line,r.x+10,y);
+      drawButton(ctx,r.x+r.w-86,r.y+8,72,22,'Save'); win._saveRect={x:r.x+r.w-86,y:r.y+8,w:72,h:22};
+      if(Focus.winId===win.id && Focus.target==='editor'){ ctx.strokeStyle=UI.colors.accent; ctx.strokeRect(r.x+0.5,r.y+0.5,r.w-1,r.h-1); }
+    });
+    setFocus(ed.id,'editor');
+  };
+  const del=(e)=>{ if(confirm('Delete '+e.name+'?')){ localStorage.removeItem(e.key); refresh(); render(); } };
+  refresh();
+  w.onClick=(mx,my)=>{
+    if(!insideClient(w,mx,my)) return;
+    if(w._newRect && rectHit(mx,my,w._newRect.x,w._newRect.y,w._newRect.w,w._newRect.h)){ create(); return; }
+    for(const rr of (w._rowRects||[])){
+      const e=w.entries[rr.idx];
+      if(rectHit(mx,my,rr.ox,rr.oy,48,18)){ openFile(e); return; }
+      if(rectHit(mx,my,rr.dx,rr.dy,48,18)){ del(e); return; }
+    }
+  };
+  w.render=(ctx,win)=>panel(ctx,win,(r)=>{
+    drawButton(ctx,r.x+8,r.y+8,90,22,'New File'); win._newRect={x:r.x+8,y:r.y+8,w:90,h:22};
+    const pad=8, headY=r.y+40, rowH=24;
+    ctx.fillStyle='#fdfaf2'; ctx.fillRect(r.x+pad,headY,r.w-pad*2,22);
+    ctx.strokeStyle='#d5c7a6'; ctx.strokeRect(r.x+pad+0.5,headY+0.5,r.w-pad*2-1,21);
+    ctx.fillStyle=UI.colors.text; ctx.font=font(12); ctx.fillText('Name', r.x+pad+6, headY+15);
+    win._rowRects=[]; let y=headY+28;
+    (w.entries||[]).forEach((e,i)=>{
+      ctx.fillStyle= i%2? '#fbf7ea':'#fff'; ctx.fillRect(r.x+pad,y-2,r.w-pad*2,rowH);
+      ctx.fillStyle=UI.colors.text; ctx.fillText(e.name, r.x+pad+6, y+12);
+      drawButton(ctx, r.x+r.w-pad-100, y-2+3, 48,18,'Open');
+      drawButton(ctx, r.x+r.w-pad-48,  y-2+3, 48,18,'Del');
+      win._rowRects.push({idx:i, ox:r.x+r.w-pad-100, oy:y+1, dx:r.x+r.w-pad-48, dy:y+1});
+      y+=rowH;
+    });
+  });
+}});
+
+/* ========= Terminal ========= */
+Apps.set('terminal',{name:'Terminal',icon:'⌨️',launch:()=>{
+  const w=makeWindow({title:'Terminal',w:780,h:420,appId:'terminal',icon:'⌨️'});
+  w.lines = Store.get('term:lines', ['Tabularium shell — type "help".']);
+  w.buf   = '';
+  w.cwd   = Store.get('term:cwd','/imperium');
+  w.hist  = Store.get('term:hist',[]);
+  w.hi    = w.hist.length;
+
+  function persist(){ Store.set('term:lines',w.lines); Store.set('term:hist',w.hist); Store.set('term:cwd',w.cwd); }
+  function prompt(){ return `${w.cwd}$`; }
+  function print(s){ w.lines.push(String(s)); if(w.lines.length>800) w.lines=w.lines.slice(-800); persist(); }
+  function run(cmd){
+    const c=cmd.trim(); if(!c) return;
+    w.hist.push(c); w.hi=w.hist.length;
+    const [head,...rest]=c.split(' '); const arg=rest.join(' ');
+    switch(head){
+      case 'help': print('commands: help, apps, time, echo <text>, open <appId>, clear, cd <path>, ls, history'); break;
+      case 'apps': print([...Apps.keys()].join(' ')); break;
+      case 'time': print(new Date().toString()); break;
+      case 'echo': print(arg); break;
+      case 'open':{ const app=Apps.get(arg); if(app&&app.launch){ app.launch(); } else print('no such app'); break; }
+      case 'clear': w.lines=[]; break;
+      case 'cd': w.cwd = arg || w.cwd; print('cwd -> '+w.cwd); break;
+      case 'ls': print('. .. /provinces /legions /treasury /annona'); break;
+      case 'history': w.hist.forEach((h,i)=>print(`${i}  ${h}`)); break;
+      default: print(`unknown: ${head}`);
+    }
+    persist();
+  }
+
+  w.onKey=(evt)=>{
+    if(evt.focus!=='terminal-input') return;
+    if(evt.type==='char'){ w.buf+=evt.ch; render(); return; }
+    if(evt.type==='key'){
+      if(evt.key==='Enter'){ print(prompt()+' '+w.buf); run(w.buf); w.buf=''; render(); return; }
+      if(evt.key==='Backspace'){ w.buf=w.buf.slice(0,-1); render(); return; }
+      if(evt.key==='ArrowUp'){ if(w.hi>0){ w.hi--; w.buf=w.hist[w.hi]||''; render(); } return; }
+      if(evt.key==='ArrowDown'){ if(w.hi<w.hist.length){ w.hi++; w.buf=w.hist[w.hi]||''; render(); } return; }
+      if(evt.key==='Tab'){ evt.prevent&&evt.prevent(); return; }
+    }
+  };
+
+  w.onClick=(mx,my)=>{
+    if(!insideClient(w,mx,my)) return;
+    const B=w._tb||{};
+    if(B.run && rectHit(mx,my,B.run.x,B.run.y,B.run.w,B.run.h)){ print(prompt()+' '+w.buf); run(w.buf); w.buf=''; render(); return; }
+    if(B.clear && rectHit(mx,my,B.clear.x,B.clear.y,B.clear.h)){ w.lines=[]; persist(); render(); return; }
+    if(w._inputRect && rectHit(mx,my,w._inputRect.x,w._inputRect.y,w._inputRect.w,w._inputRect.h)){ setFocus(w.id,'terminal-input'); return; }
+    setFocus(w.id,'terminal-input');
+  };
+
+  w.render=(ctx,win)=>panel(ctx,win,(r)=>{
+    win._tb={};
+    let x=r.x+8, y=r.y+8;
+    drawButton(ctx,x,y,72,22,'Run');   win._tb.run={x,y,w:72,h:22}; x+=80;
+    drawButton(ctx,x,y,72,22,'Clear'); win._tb.clear={x,y,w:72,h:22};
+
+    ctx.fillStyle='#d5c7a6'; ctx.fillRect(r.x, y+22+8, r.w, 1);
+
+    const outY = y+22+16;
+    const outH = r.h - (outY - r.y) - 40;
+    const padX = 8, lineH=18;
+    ctx.fillStyle='#0e0e0f'; ctx.fillRect(r.x, outY, r.w, outH);
+    const maxLines = Math.floor((outH-8)/lineH);
+    const lines = win.lines.slice(-maxLines);
+    let ly=outY+16; ctx.font=font(13); ctx.fillStyle='#e6e6e6';
+    for(let i=0;i<lines.length;i++){ ctx.fillText(lines[i], r.x+padX, ly); ly+=lineH; }
+
+    const inY = r.y + r.h - 30, inH=24, inX=r.x+8, inW=r.w-16;
+    ctx.fillStyle='#fff'; ctx.fillRect(inX, inY, inW, inH);
+    ctx.strokeStyle='#d5c7a6'; ctx.strokeRect(inX+0.5, inY+0.5, inW-1, inH-1);
+    ctx.fillStyle=UI.colors.text; ctx.font=font(13);
+    const promptTxt = prompt()+' ';
+    ctx.fillText(promptTxt + (win.buf||''), inX+8, inY+16);
+    win._inputRect={x:inX,y:inY,w:inW,h:inH};
+    if(Focus.winId===win.id && Focus.target==='terminal-input'){ ctx.strokeStyle=UI.colors.accent; ctx.strokeRect(inX+0.5,inY+0.5,inW-1,inH-1); }
+  });
+
+  setFocus(w.id,'terminal-input');
+}});
+
+/* ========= Dashboard Factory ========= */
+function dashApp({id,name,icon,seed,columns,actions,storageKey}){
+  Apps.set(id,{name,icon,launch:()=>{
+    const w=makeWindow({title:name, w:680, h:420, appId:id, icon});
+    const load=()=>{ w.items=Store.get(storageKey, seed.slice()); };
+    const save=()=>{ Store.set(storageKey,w.items); };
+    const add=()=>{ const vals=columns.map(c=>prompt('Enter '+c.name+':', c.def||'')); if(vals.some(v=>v==null)) return; w.items.push(Object.fromEntries(columns.map((c,i)=>[c.key,vals[i]]))); save(); render(); };
+    const edit=(idx)=>{ const it=w.items[idx]; const vals=columns.map(c=>prompt('Edit '+c.name+':', it[c.key]||'')); if(vals.some(v=>v==null)) return; columns.forEach((c,i)=> it[c.key]=vals[i]); save(); render(); };
+    const remove=(idx)=>{ if(!confirm('Remove item?')) return; w.items.splice(idx,1); save(); render(); };
+    const act=(idx,actId)=>{ const it=w.items[idx]; if(actions&&actions[actId]) actions[actId](it,idx,{save,render}); };
+
+    load();
+    w.onClick=(mx,my)=>{
+      if(!insideClient(w,mx,my)) return;
+      for(const t of (w._toolbar||[])){ if(rectHit(mx,my,t.x,t.y,t.w,t.h)){ t.cb(); return; } }
+      for(const r of (w._rows||[])){
+        if(rectHit(mx,my,r.ex,r.ey,48,18)){ edit(r.i); return; }
+        if(rectHit(mx,my,r.dx,r.dy,48,18)){ remove(r.i); return; }
+        if(rectHit(mx,my,r.ax,r.ay,48,18)){ act(r.i,'do'); return; }
+      }
+    };
+    w.render=(ctx,win)=>panel(ctx,win,(r)=>{
+      win._toolbar=[];
+      const put=(x,label,cb)=>{ drawButton(ctx,x,r.y+8,80,22,label); win._toolbar.push({x,y:r.y+8,w:80,h:22,cb}); return x+88; };
+      let x=r.x+8; x=put(x,'Add',add); put(x,'Refresh',()=>{load();render();});
+      ctx.fillStyle='#d5c7a6'; ctx.fillRect(r.x,r.y+8+22+8,r.w,1);
+      const pad=8, headY=r.y+48, rowH=24, actionsW=156;
+      ctx.fillStyle='#fdfaf2'; ctx.fillRect(r.x+pad,headY,r.w-pad*2,22);
+      ctx.strokeStyle='#d5c7a6'; ctx.strokeRect(r.x+pad+0.5,headY+0.5,r.w-pad*2-1,21);
+      ctx.fillStyle=UI.colors.text; ctx.font=font(12);
+      const cols=columns.length; const freeW=r.w-pad*2-actionsW; const colW = columns.map(()=>Math.floor(freeW/cols));
+      let cx=r.x+pad+6; columns.forEach((c,i)=>{ ctx.fillText(c.name, cx, headY+15); cx+=colW[i]; });
+      win._rows=[]; let y=headY+28;
+      (w.items||[]).forEach((obj,i)=>{
+        ctx.fillStyle= i%2? '#fbf7ea':'#fff'; ctx.fillRect(r.x+pad,y-2,r.w-pad*2,rowH);
+        ctx.fillStyle=UI.colors.text; ctx.font=font(12);
+        let tx=r.x+pad+6; columns.forEach((c,ci)=>{ ctx.fillText(String(obj[c.key]||''), tx, y+12); tx+=colW[ci]; });
+        drawButton(ctx, r.x+r.w-pad-156, y-2+3, 48,18,'Edit');
+        drawButton(ctx, r.x+r.w-pad-104, y-2+3, 48,18,'Del');
+        drawButton(ctx, r.x+r.w-pad-52,  y-2+3, 48,18,'Do');
+        win._rows.push({i,ex:r.x+r.w-pad-156,ey:y+1,dx:r.x+r.w-pad-104,dy:y+1,ax:r.x+r.w-pad-52,ay:y+1});
+        y+=rowH;
+      });
+    });
+  }});
+}
+
+/* ========= Imperial Apps ========= */
+dashApp({
+  id:'census', name:'Census & Taxation', icon:'🏛️', storageKey:'census:list',
+  columns:[{key:'province',name:'Province'},{key:'levy',name:'Levy'},{key:'paid',name:'Paid'},{key:'arrears',name:'Arrears'}],
+  seed:[{province:'Aegyptus',levy:'18000',paid:'17400',arrears:'600'},{province:'Asia',levy:'14000',paid:'13820',arrears:'180'}],
+  actions:{ do:(it,idx,api)=>{ const amt=prompt('Payment amount:','0'); if(!amt) return; it.paid=String(Number(it.paid||0)+Number(amt)); it.arrears=String(Math.max(0,Number(it.levy)-Number(it.paid))); api.save(); api.render(); } }
+});
+dashApp({
+  id:'treasury', name:'Treasury', icon:'💰', storageKey:'treasury:tx',
+  columns:[{key:'ts',name:'Date'},{key:'account',name:'Account'},{key:'amount',name:'Amount'},{key:'note',name:'Note'}],
+  seed:[{ts:new Date().toISOString().slice(0,10), account:'Taxes', amount:'4100', note:'—'}],
+  actions:{ do:()=>alert('Use Add to append transactions.') }
+});
+dashApp({
+  id:'annona', name:'Annona (Grain)', icon:'🌾', storageKey:'annona:ships',
+  columns:[{key:'ship',name:'Ship'},{key:'origin',name:'Origin'},{key:'dest',name:'Dest'},{key:'tonnage',name:'Tonnage'},{key:'eta',name:'ETA'},{key:'status',name:'Status'}],
+  seed:[{ship:'Isis',origin:'Alexandria',dest:'Ostia',tonnage:'1200',eta:'+5d',status:'At sea'},{ship:'Fortuna',origin:'Carthago',dest:'Ostia',tonnage:'800',eta:'+3d',status:'At sea'}],
+  actions:{ do:(it,idx,api)=>{ const s=prompt('Update status:', it.status||'At sea'); if(!s) return; it.status=s; api.save(); api.render(); } }
+});
+dashApp({
+  id:'legions', name:'Legions', icon:'🛡️', storageKey:'legions:list',
+  columns:[{key:'name',name:'Legio'},{key:'location',name:'Location'},{key:'strength',name:'Strength'},{key:'ready',name:'Readiness'}],
+  seed:[{name:'III Gallica',location:'Antioch',strength:'5200',ready:'0.84'},{name:'X Fretensis',location:'Jerusalem',strength:'5000',ready:'0.79'}],
+  actions:{ do:(it,idx,api)=>{ const to=prompt('Redeploy to:', it.location); if(!to) return; it.location=to; it.ready=String(Math.max(0,(Number(it.ready)||0)-0.02)); api.save(); api.render(); } }
+});
+dashApp({
+  id:'works', name:'Roads & Works', icon:'🧱', storageKey:'works:list',
+  columns:[{key:'asset',name:'Asset'},{key:'scope',name:'Scope'},{key:'cost',name:'Cost'},{key:'status',name:'Status'}],
+  seed:[{asset:'Aqua Claudia',scope:'Repair arches',cost:'450',status:'In progress'}],
+  actions:{ do:(it,idx,api)=>{ const s=prompt('Update status:', it.status||''); if(!s) return; it.status=s; api.save(); api.render(); } }
+});
+dashApp({
+  id:'provinces', name:'Provinces', icon:'🗺️', storageKey:'provinces:list',
+  columns:[{key:'province',name:'Province'},{key:'governor',name:'Governor'},{key:'yield',name:'Yield Δ'},{key:'risk',name:'Risk'}],
+  seed:[{province:'Syria',governor:'Cassius',yield:'▲4%',risk:'Med'}],
+  actions:{ do:(it,idx,api)=>{ const r=prompt('Set risk (Low/Med/High):', it.risk||''); if(!r) return; it.risk=r; api.save(); api.render(); } }
+});
+dashApp({
+  id:'intelligence', name:'Intelligence', icon:'🕵️', storageKey:'intel:list',
+  columns:[{key:'region',name:'Region'},{key:'signal',name:'Signal'},{key:'confidence',name:'Conf.'},{key:'state',name:'State'}],
+  seed:[{region:'Danube',signal:'Raids',confidence:'0.7',state:'Watch'}],
+  actions:{ do:(it,idx,api)=>{ const s=prompt('Set state (Watch/Caution/Suppress):', it.state||''); if(!s) return; it.state=s; api.save(); api.render(); } }
+});
+dashApp({
+  id:'edicts', name:'Edicts & Rescripts', icon:'📜', storageKey:'edicts:list',
+  columns:[{key:'subject',name:'Subject'},{key:'status',name:'Status'},{key:'aud',name:'Audience'},{key:'when',name:'When'}],
+  seed:[{subject:'Grain price cap',status:'Draft',aud:'Provinces',when:'—'}],
+  actions:{ do:(it,idx,api)=>{ const flow=['Draft','Review','Sealed','Promulgated']; const i=Math.max(0,flow.indexOf(it.status)); it.status=flow[(i+1)%flow.length]; api.save(); api.render(); } }
+});
+dashApp({
+  id:'petitions', name:'Petitions & Justice', icon:'⚖️', storageKey:'petitions:list',
+  columns:[{key:'from',name:'From'},{key:'region',name:'Region'},{key:'category',name:'Category'},{key:'urgency',name:'Urgency'},{key:'status',name:'Status'}],
+  seed:[{from:'Bakers Guild',region:'Roma',category:'Price',urgency:'High',status:'Open'}],
+  actions:{ do:(it,idx,api)=>{ const s=prompt('Set status (Open/Assigned/Resolved/Denied):', it.status||'Open'); if(!s) return; it.status=s; api.save(); api.render(); } }
+});
+dashApp({
+  id:'mint', name:'Coinage & Mint', icon:'🪙', storageKey:'mint:list',
+  columns:[{key:'mint',name:'Mint'},{key:'denom',name:'Denom.'},{key:'fine',name:'Fineness'},{key:'qty',name:'Qty(k)'},{key:'status',name:'Status'}],
+  seed:[{mint:'Roma',denom:'Aureus',fine:'0.985',qty:'30',status:'Running'}],
+  actions:{ do:(it,idx,api)=>{ const s=prompt('Update status:', it.status||''); if(!s) return; it.status=s; api.save(); api.render(); } }
+});
+dashApp({
+  id:'spectacles', name:'Spectacles', icon:'🏟️', storageKey:'spectacles:list',
+  columns:[{key:'event',name:'Event'},{key:'venue',name:'Venue'},{key:'date',name:'Date'},{key:'expected',name:'Expected'}],
+  seed:[{event:'Ludi Romani',venue:'Circus',date:'Ides',expected:'150000'}],
+  actions:{ do:(it,idx,api)=>{ const n=prompt('Adjust expected attendance:', it.expected||''); if(!n) return; it.expected=n; api.save(); api.render(); } }
+});
+dashApp({
+  id:'omens', name:'Cult & Omens', icon:'🔮', storageKey:'omens:list',
+  columns:[{key:'date',name:'Date'},{key:'sign',name:'Sign'},{key:'interp',name:'Interpretation'},{key:'action',name:'Action'}],
+  seed:[{date:'Nones',sign:'Comet',interp:'Unfavorable',action:'Delay muster'}],
+  actions:{ do:(it,idx,api)=>{ const a=prompt('Set action:', it.action||''); if(!a) return; it.action=a; api.save(); api.render(); } }
+});
+dashApp({
+  id:'risk', name:'Risk & Unrest', icon:'🔥', storageKey:'risk:list',
+  columns:[{key:'city',name:'City'},{key:'index',name:'Index'},{key:'drivers',name:'Drivers'},{key:'state',name:'State'}],
+  seed:[{city:'Alexandria',index:'0.62',drivers:'Prices, rumor',state:'Watch'}],
+  actions:{ do:(it,idx,api)=>{ const d=prompt('Add driver:', ''); if(d){ it.drivers=(it.drivers?it.drivers+', ':'')+d; api.save(); api.render(); } } }
+});
+dashApp({
+  id:'succession', name:'Succession', icon:'👑', storageKey:'succession:list',
+  columns:[{key:'person',name:'Person'},{key:'title',name:'Title'},{key:'loyalty',name:'Loyalty'},{key:'since',name:'Since'}],
+  seed:[{person:'Germanicus',title:'Caesar',loyalty:'0.86',since:'Year II'}],
+  actions:{ do:(it,idx,api)=>{ const l=prompt('Set loyalty (0..1):', it.loyalty||'0.5'); if(!l) return; it.loyalty=l; api.save(); api.render(); } }
+});
+dashApp({
+  id:'procurement', name:'Procurement', icon:'📑', storageKey:'procure:list',
+  columns:[{key:'category',name:'Category'},{key:'spec',name:'Spec'},{key:'budget',name:'Budget'},{key:'status',name:'Status'}],
+  seed:[{category:'Grain transport',spec:'50 ships',budget:'400',status:'Open'}],
+  actions:{ do:(it,idx,api)=>{ const s=prompt('Award/Update status:', it.status||'Open'); if(!s) return; it.status=s; api.save(); api.render(); } }
+});
+
+/* ========= Launcher (permanent; dynamic tiles; ensures Terminal present) ========= */
+function openLauncher(){
+  const existing=UI.windows.find(w=>w.appId==='launcher');
+  if(existing) return existing;
+  const w=makeWindow({title:'Launcher', w:840, h:560, appId:'launcher', x:24, y:24, icon:'≡', permanent:true});
+  w.query=''; w.sel=0;
+  w.grid={pad:16, cellW:120, cellH:120, cols:5, gapX:16, gapY:16};
+
+  w.refreshTiles=()=>{
+    // exclude launcher itself; include all other apps, guaranteeing terminal and clock exist
+    const tiles=[];
+    for(const [id,app] of Apps.entries()){
+      if(id==='launcher') continue;
+      tiles.push({type:'app',id,name:app.name||id,icon:app.icon||'■'});
+    }
+    // hard guarantee
+    if(!tiles.find(t=>t.id==='terminal') && Apps.get('terminal')) tiles.push({type:'app',id:'terminal',name:Apps.get('terminal').name,icon:Apps.get('terminal').icon});
+    if(!tiles.find(t=>t.id==='clock') && Apps.get('clock')) tiles.push({type:'app',id:'clock',name:Apps.get('clock').name,icon:Apps.get('clock').icon});
+    w.tiles=tiles.sort((a,b)=>a.name.localeCompare(b.name));
+  };
+
+  function currentFiles(){ return Object.keys(localStorage).filter(k=>k.startsWith('fs:')).map(k=>({type:'file',id:k,name:k.slice(3),icon:'📄'})); }
+
+  function rankScore(q, name, id){
+    if(!q) return 0;
+    const s=name.toLowerCase(), i=id.toLowerCase();
+    if(s===q || i===q) return 100;
+    let score=0;
+    if(s.startsWith(q)) score+=40;
+    if(s.includes(q))  score+=25;
+    if(i.startsWith(q)) score+=15;
+    if(i.includes(q))  score+=10;
+    return score;
+  }
+
+  w.computeResults=()=>{
+    const q=w.query.trim().toLowerCase();
+    if(!q){ w.results=[]; w.sel=0; return; }
+    const apps=(w.tiles||[]).map(t=>({t,score:rankScore(q,t.name,t.id)})).filter(x=>x.score>0);
+    const files=currentFiles().map(t=>({t,score:rankScore(q,t.name,t.id)})).filter(x=>x.score>0);
+    const merged=apps.concat(files).sort((a,b)=>b.score-a.score).slice(0,12).map(x=>x.t);
+    w.results=merged; if(w.sel>=merged.length) w.sel=Math.max(0,merged.length-1);
+  };
+
+  w.filter=()=>{
+    w.refreshTiles();
+    const q=w.query.trim().toLowerCase();
+    w.view = q? w.tiles.filter(t=>t.name.toLowerCase().includes(q)||t.id.includes(q)) : w.tiles.slice();
+    w.computeResults();
+  };
+  w.filter();
+
+  w.onKey=(evt)=>{
+    if(Focus.winId!==w.id||Focus.target!=='launcher-search') return;
+    if(evt.type==='char'){ w.query+=evt.ch; w.filter(); render(); return; }
+    if(evt.type==='key'){
+      if(evt.key==='Backspace'){ w.query=w.query.slice(0,-1); w.filter(); render(); return; }
+      if(evt.key==='ArrowDown'){ if(w.results&&w.results.length){ w.sel=(w.sel+1)%w.results.length; render(); } return; }
+      if(evt.key==='ArrowUp'){ if(w.results&&w.results.length){ w.sel=(w.sel-1+w.results.length)%w.results.length; render(); } return; }
+      if(evt.key==='Enter'){
+        if(w.results&&w.results.length){ openResult(w.results[w.sel]); return; }
+        if(w.view&&w.view[0]){ const app=Apps.get(w.view[0].id); if(app&&app.launch){ app.launch(); } }
+      }
+      if(evt.key==='Escape'){ w.query=''; w.filter(); render(); return; }
+    }
+  };
+
+  function openResult(item){
+    if(item.type==='app'){ const app=Apps.get(item.id); if(app&&app.launch) app.launch(); }
+    else if(item.type==='file'){
+      const data=localStorage.getItem(item.id)||'';
+      const ed=makeWindow({title:'Editor — '+item.name,w:560,h:360,appId:'editor',icon:'📄'}); ed.text=data; ed.key=item.id;
+      ed.onKey=(evt)=>{ if(evt.focus!=='editor') return; if(evt.type==='char'){ed.text+=evt.ch;} else if(evt.type==='key'){ if(evt.key==='Enter') ed.text+='\n'; else if(evt.key==='Backspace') ed.text=ed.text.slice(0,-1);} render(); };
+      ed.onClick=(mx,my)=>{ if(!insideClient(ed,mx,my)) return; const r=ed._saveRect; if(r && rectHit(mx,my,r.x,r.y,r.w,r.h)){ localStorage.setItem(ed.key,ed.text); } setFocus(ed.id,'editor'); };
+      ed.render=(ctx,win)=>panel(ctx,win,(r)=>{
+        ctx.fillStyle=UI.colors.note; ctx.fillRect(r.x,r.y,r.w,r.h);
+        ctx.fillStyle=UI.colors.text; ctx.font=font(14);
+        const words=(ed.text||'').split(/\s+/); let line='', y=r.y+20, max=r.w-20, lh=18;
+        for(const word of words){ const t=line?line+' '+word:word; if(ctx.measureText(t).width>max){ ctx.fillText(line,r.x+10,y); y+=lh; line=word; } else line=t; }
+        if(line) ctx.fillText(line,r.x+10,y);
+        drawButton(ctx,r.x+r.w-86,r.y+8,72,22,'Save'); win._saveRect={x:r.x+r.w-86,y:r.y+8,w:72,h:22};
+        if(Focus.winId===win.id && Focus.target==='editor'){ ctx.strokeStyle=UI.colors.accent; ctx.strokeRect(r.x+0.5,r.y+0.5,r.w-1,r.h-1); }
+      });
+      setFocus(ed.id,'editor');
+    }
+  }
+
+  w.onClick=(mx,my)=>{
+    const searchRect={x:w.x+16,y:w.y+44,w:w.w-32,h:28};
+    if(rectHit(mx,my, searchRect.x, searchRect.y, searchRect.w, searchRect.h)){ setFocus(w.id,'launcher-search'); return; }
+    if(!insideClient(w,mx,my)) return;
+
+    const rr=w._resultsRect;
+    if(rr && rectHit(mx,my, rr.x, rr.y, rr.w, rr.h)){
+      const idx=Math.floor((my-rr.y)/24);
+      if(w.results && w.results[idx]){ openResult(w.results[idx]); }
+      return;
+    }
+
+    const r=clientRect(w), {pad,cellW,cellH,cols,gapX,gapY}=w.grid, startX=r.x+pad, startY=r.y+pad+24+ (w.results?.length? (w.results.length*24+16):0);
+    const tiles=w.view||[];
+    for(let i=0;i<tiles.length;i++){
+      const col=i%cols,row=(i/cols|0), x=startX+col*(cellW+gapX), y=startY+row*(cellH+gapY);
+      if(rectHit(mx,my,x,y,cellW,cellH)){ const t=tiles[i]; const app=Apps.get(t.id); app&&app.launch&&app.launch(); return; }
+    }
+  };
+
+  w.render=(ctx,win)=>{
+    const sx=win.x+16, sy=win.y+44, sw=win.w-32, sh=28;
+    ctx.fillStyle='#fff'; ctx.fillRect(sx,sy,sw,sh);
+    ctx.strokeStyle='#d5c7a6'; ctx.strokeRect(sx+0.5,sy+0.5,sw-1,sh-1);
+    ctx.fillStyle=UI.colors.text; ctx.font=font(13); ctx.fillText('Search: '+(win.query||''), sx+8, sy+18);
+    if(Focus.winId===win.id && Focus.target==='launcher-search'){ ctx.strokeStyle=UI.colors.accent; ctx.strokeRect(sx+0.5,sy+0.5,sw-1,sh-1); }
+
+    panel(ctx,win,(r)=>{
+      ctx.fillStyle='#f8f1df'; ctx.fillRect(r.x,r.y,r.w,r.h);
+
+      // results list
+      let y=r.y+8;
+      if(win.results && win.results.length){
+        const rx=r.x+8, rw=r.w-16; const lineH=24;
+        win._resultsRect={x:rx,y:y,w:rw,h:win.results.length*lineH};
+        ctx.font=font(12);
+        for(let i=0;i<win.results.length;i++){
+          const it=win.results[i];
+          ctx.fillStyle= i===win.sel ? 'rgba(255,230,150,0.6)' : '#fff';
+          ctx.fillRect(rx, y, rw, lineH-2);
+          ctx.strokeStyle='#d5c7a6'; ctx.strokeRect(rx+0.5,y+0.5,rw-1,lineH-3);
+          ctx.fillStyle='#2b2415'; ctx.fillText(`${it.icon}  ${it.name}  — ${it.type}`, rx+8, y+16);
+          y+=lineH;
+        }
+        y+=8;
+      } else {
+        win._resultsRect=null;
+      }
+
+      // tiles grid (apps)
+      const {pad,cellW,cellH,cols,gapX,gapY}=win.grid;
+      const startX=r.x+pad, startY=y+pad+24;
+      const tiles=win.view||[];
+      ctx.textAlign='center';
+      tiles.forEach((t,i)=>{ const col=i%cols,row=(i/cols|0), x=startX+col*(cellW+gapX), yy=startY+row*(cellH+gapY);
+        if(x+cellW>r.x+r.w||yy+cellH>r.y+r.h) return;
+        ctx.fillStyle=UI.colors.tile; ctx.fillRect(x,yy,cellW,cellH);
+        ctx.strokeStyle=UI.colors.tileStroke; ctx.strokeRect(x+0.5,yy+0.5,cellW-1,cellH-1);
+        ctx.fillStyle='#2b2415'; ctx.font=font(34); ctx.fillText(t.icon, x+cellW/2, yy+54);
+        ctx.fillStyle='#3a2b17'; ctx.font=font(12); const label=t.name.length>16?t.name.slice(0,15)+'…':t.name; ctx.fillText(label, x+cellW/2, yy+cellH-16);
+      });
+      ctx.textAlign='left';
+    });
+  };
+
+  return w;
+}
+
+/* ========= draw window chrome ========= */
+function drawWindowChrome(ctx,w){
+  if(w.state==='min') return;
+  ctx.fillStyle=UI.colors.shadow; ctx.fillRect(w.x+4,w.y+6,w.w,w.h);
+  roundRect(ctx,w.x,w.y,w.w,w.h,10,UI.colors.chrome,'#bdae8a');
+  ctx.fillStyle='#eadfca'; ctx.fillRect(w.x,w.y,w.w,32);
+  ctx.fillStyle=UI.colors.title; ctx.font=font(13);
+  const title=(Apps.get(w.appId)?.icon||w.icon||'■')+'  '+w.title;
+  ctx.fillText(title, w.x+12, w.y+20);
+
+  if(!w.permanent){
+    drawButton(ctx, w.x+w.w-72, w.y+8, 16,16, '–');
+    drawButton(ctx, w.x+w.w-50, w.y+8, 16,16, w.maximized?'❐':'□');
+    drawButton(ctx, w.x+w.w-28, w.y+8, 16,16, '×');
+    ctx.strokeStyle='#bdae8a'; ctx.strokeRect(w.x+w.w-12.5, w.y+w.h-12.5, 11,11);
+  }
+}
+
+/* ========= taskbar ========= */
+function renderTaskbar(ctx){
+  const dpr=UI.scale,H=UI.taskbar.h,W=uiCanvas.width/dpr,Y=(uiCanvas.height/dpr)-H;
+  ctx.fillStyle='rgba(240,232,214,0.95)'; ctx.fillRect(0,Y,W,H);
+  drawButton(ctx,12,Y+10,24,24,'≡'); ctx.font=font(12); ctx.fillStyle=UI.colors.text; ctx.fillText('Tabularium',44,Y+26);
+  let x=160;
+  for(let i=0;i<UI.windows.length;i++){
+    const w=UI.windows[i];
+    if(w.appId==='launcher') continue; // launcher not on taskbar
+    if(w.state==='min') ctx.globalAlpha=.6; else ctx.globalAlpha=1;
+    drawButton(ctx,x,Y+10,26,24,(Apps.get(w.appId)?.icon)||w.icon||'■');
+    w._taskRect={x,y:Y+10,w:26,h:24}; x+=32; ctx.globalAlpha=1;
+  }
+}
+
+/* ========= render ========= */
+function render(){
+  const ctx=UI.ctx,dpr=UI.scale;
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,uiCanvas.width,uiCanvas.height);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  for(let i=0;i<UI.windows.length;i++){ const w=UI.windows[i]; if(w.state!=='min'){ drawWindowChrome(ctx,w); if(w.render) w.render(ctx,w); } }
+  renderTaskbar(ctx);
+}
+
+/* ========= helpers ========= */
+function enforceOnlyVisible(appIdsKeep){
+  for(const w of UI.windows){
+    if(w.appId==='launcher') continue; // keep launcher visible (permanent)
+    if(!appIdsKeep.includes(w.appId)) w.state='min';
+  }
+  render();
+}
+
+/* ========= input ========= */
+function hitTopWindow(mx,my){
+  for(let i=UI.windows.length-1;i>=0;i--){ const w=UI.windows[i]; if(w.state!=='min' && rectHit(mx,my,w.x,w.y,w.w,w.h)) return w; }
+  return null;
+}
+let drag=null, resizeOp=null;
+uiCanvas.addEventListener('mousedown',e=>{
+  const r=uiCanvas.getBoundingClientRect(), dpr=UI.scale;
+  const mx=(e.clientX-r.left)*(uiCanvas.width/r.width)/dpr, my=(e.clientY-r.top)*(uiCanvas.height/r.height)/dpr;
+
+  const tbY=(uiCanvas.height/dpr)-UI.taskbar.h;
+  if(rectHit(mx,my,12,tbY+10,24,24)){ const L=openLauncher(); bringToFront(L.id); setFocus(L.id,'launcher-search'); return; }
+  for(const w of UI.windows){ const tr=w._taskRect; if(tr && rectHit(mx,my,tr.x,tr.y,tr.w,tr.h)){ if(w.state==='min') restoreWindow(w.id); else minimizeWindow(w.id); clearFocus(); return; } }
+
+  const w=hitTopWindow(mx,my);
+  if(w){
+    bringToFront(w.id,false);
+
+    if(!w.permanent){
+      if(rectHit(mx,my, w.x+w.w-28, w.y+8,16,16)){ closeWindow(w.id); return; }
+      if(rectHit(mx,my, w.x+w.w-72, w.y+8,16,16)){ minimizeWindow(w.id); return; }
+      if(rectHit(mx,my, w.x+w.w-50, w.y+8,16,16)){ maximizeWindow(w.id); return; }
+    }
+
+    if(!w.maximized){
+      const m=hitResize(w,mx,my);
+      if(m!==RES.NONE){ resizeOp={id:w.id,mode:m,ox:mx,oy:my, sx:w.x,sy:w.y, sw:w.w,sh:w.h}; document.body.style.cursor=cursorFor(m)||''; return; }
+    }
+    if(rectHit(mx,my, w.x, w.y, w.w, 32)){ drag={id:w.id,dx:mx-w.x,dy:my-w.y}; clearFocus(); render(); return; }
+
+    if(insideClient(w,mx,my)){ if(w.onClick) w.onClick(mx,my); else clearFocus(); render(); return; }
+    clearFocus(); render(); return;
+  }
+  clearFocus(); render();
+});
+addEventListener('mousemove',e=>{
+  const r=uiCanvas.getBoundingClientRect(), dpr=UI.scale;
+  const mx=(e.clientX-r.left)*(uiCanvas.width/r.width)/dpr, my=(e.clientY-r.top)*(uiCanvas.height/r.height)/dpr;
+
+  if(!drag && !resizeOp){
+    const w=hitTopWindow(mx,my);
+    if(w && !w.maximized){ document.body.style.cursor=cursorFor(hitResize(w,mx,my))||''; }
+    else document.body.style.cursor='';
+  }
+  if(drag){ const w=UI.winById.get(drag.id); w.x=mx-drag.dx; w.y=my-drag.dy; render(); }
+  if(resizeOp){
+    const w=UI.winById.get(resizeOp.id);
+    let nx=resizeOp.sx, ny=resizeOp.sy, nw=resizeOp.sw, nh=resizeOp.sh;
+    const dx=mx-resizeOp.ox, dy=my-resizeOp.oy; const minW=300,minH=200;
+    if(resizeOp.mode&RES.L){ nx=resizeOp.sx+dx; nw=resizeOp.sw-dx; }
+    if(resizeOp.mode&RES.R){ nw=resizeOp.sw+dx; }
+    if(resizeOp.mode&RES.T){ ny=resizeOp.sy+dy; nh=resizeOp.sh-dy; }
+    if(resizeOp.mode&RES.B){ nh=resizeOp.sh+dy; }
+    nw=Math.max(minW,nw); nh=Math.max(minH,nh);
+    if(nx+nw>resizeOp.sx+resizeOp.sw && (resizeOp.mode&RES.L)) nx=resizeOp.sx+resizeOp.sw-nw;
+    if(ny+nh>resizeOp.sy+resizeOp.sh && (resizeOp.mode&RES.T)) ny=resizeOp.sy+resizeOp.sh-nh;
+    w.x=nx; w.y=ny; w.w=nw; w.h=nh; render();
+  }
+});
+addEventListener('mouseup',()=>{ drag=null; resizeOp=null; document.body.style.cursor=''; });
+
+/* ========= keyboard routing ========= */
+addEventListener('keydown',e=>{
+  if((e.altKey||e.metaKey) && e.code==='Space'){ const L=openLauncher(); bringToFront(L.id); setFocus(L.id,'launcher-search'); return; }
+  if(e.key==='Escape' && UI.activeId){ const w=UI.winById.get(UI.activeId); if(w && !w.permanent) { closeWindow(UI.activeId); } return; }
+  const win=UI.winById.get(Focus.winId); if(!win) return;
+  if(win.onKey){
+    if(e.key.length===1 && !e.metaKey && !e.ctrlKey && !e.altKey){ win.onKey({type:'char', ch:e.key, focus:Focus.target}); return; }
+    win.onKey({type:'key', key:e.key, focus:Focus.target, prevent:()=>{ e.preventDefault(); }});
+  }
+});
+
+/* ========= boot ========= */
+(function boot(){
+  log('UserAgent: '+navigator.userAgent);
+  log('Platform: '+navigator.platform);
+  log('devicePixelRatio: '+(window.devicePixelRatio||1));
+  resizeAll();
+
+  const L=openLauncher(); bringToFront(L.id);
+  Apps.get('terminal')?.launch();
+  Apps.get('clock')?.launch();
+
+  // minimize/close all others except terminal and clock; launcher remains visible by design
+  enforceOnlyVisible(['terminal','clock']);
+
+  render();
+})();
+</script>
