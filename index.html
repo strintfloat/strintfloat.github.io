@@ -52,7 +52,7 @@
         <section>
           <p>Welcome to my website, which hosts my public work and background. I plan to eventually integrate a locally hosted LLM agent accessible through any browser on my network. Until my reserved DGX Spark cluster arrives, I’m studying WebGL and WebGPU frameworks for their versatility and performance.</p>
           <p>Over the past two years, I married my partner of fourteen years at the home we purchased shortly before our wedding and founded an equestrian boarding business that I now operate. Before that, I spent over fifteen years in procurement and operations across higher education, corporate, and military environments.</p>
-      </section>
+        </section>
       <section aria-labelledby="present-heading">
         <h2 id="present-heading">Current Focus</h2>
         <ul>
@@ -151,14 +151,15 @@ const fs = `
   varying vec3 p;
   uniform float t;
   void main(){
-    // base rainbow (unchanged)
-    float phase = dot(normalize(p), vec3(0.73, 0.52, 0.43)) + t*0.0005;
-    vec3 col = 0.5 + 0.5 * cos(6.28318 * (phase + vec3(0.0, 0.3333, 0.6667)));
+    // rotate color field around central axis (Z) without moving geometry
+    float ang = t * 0.0015;          // rotation speed
+    float c = cos(ang), s = sin(ang);
+    vec2 q = mat2(c, -s, s, c) * p.xy;
 
-    // global breath: ~8s cycle, subtle luminance modulation
-    float breathe = 0.5 + 0.5 * sin(t * 0.0008);
-    col *= mix(0.94, 1.06, breathe);
+    // hue from rotated polar angle; slight radial wobble to avoid banding
+    float h = fract(atan(q.y, q.x) / 6.2831853 + 0.08 * sin(6.2831853 * length(q)));
 
+    vec3 col = 0.5 + 0.5 * cos(6.2831853 * (h + vec3(0.0, 0.3333333, 0.6666667)));
     gl_FragColor = vec4(col, 1.0);
   }`;
 
@@ -339,4 +340,3 @@ requestAnimationFrame(frame);
   </font>
 </body>
 </html>
-
