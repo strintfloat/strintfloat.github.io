@@ -43,7 +43,7 @@
 
   <meta name="robots" content="index,follow">
 </head>
-<body style="margin:0;padding:1em;max-width:100%;word-wrap:break-word;overflow-wrap:break-word;white-space:normal;font-size:18px;line-height:1.6;">
+<body>
   <font face="Garamond">
   <main id="content" role="main">
     <details id="personal">
@@ -60,13 +60,24 @@
           <li>Raising an Irish Wolfhound</li>
           <li>Managing a horse boarding business</li>
           <li>Expanding knowledge in computer science</li>
-          <li>Visualizing and 3d modeling:</li>
-          <li><a href="https://strintfloat.github.io/MilkyWay.html">Galaxies</a></li>
-          <li><a href="https://strintfloat.github.io/Torus_Lab.html">Geometric objects</a></li>
-          <li><a href="https://strintfloat.github.io/fractal.html">Fractals</a></li>
-          <li><a href="https://strintfloat.github.io/benchy3d.html">.3mf or .stl renders</a></li>
-          <li><a href="https://strintfloat.github.io/Tabularium.html">WebGL-based OS in Browser, antiquity inspired</a></li>
-          
+          <!-- Collapsed Visualizing & 3D Modeling block -->
+          <li>
+            <details class="collapsible" id="viz3d">
+              <summary>
+                <span>Visualizing &amp; 3D Modeling</span>
+                <span class="caret" aria-hidden="true">▾</span>
+              </summary>
+              <div class="panel">
+                <ul class="link-list">
+                  <li><a href="https://strintfloat.github.io/MilkyWay.html">Galaxies</a></li>
+                  <li><a href="https://strintfloat.github.io/Torus_Lab.html">Geometric objects</a></li>
+                  <li><a href="https://strintfloat.github.io/fractal.html">Fractals</a></li>
+                  <li><a href="https://strintfloat.github.io/benchy3d.html">.3mf or .stl renders</a></li>
+                  <li><a href="https://strintfloat.github.io/Tabularium.html">WebGL-based OS in Browser, antiquity inspired</a></li>
+                </ul>
+              </div>
+            </details>
+          </li>
         </ul>
       </section>
     </details>
@@ -334,15 +345,3 @@ requestAnimationFrame(frame);
   </font>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
