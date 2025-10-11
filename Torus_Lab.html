@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Torus Lab — Efficient Interactive Study</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { --bg:#0a0a0a; --text:#ddd; --muted:#8a8a8a; --panel:#121212; --line:#0ef; }
+  html, body { margin:0; height:100%; background:var(--bg); overflow:hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  canvas { width:100vw; height:100vh; display:block; }
+  #bar {
+    position:fixed; top:0; left:0; right:0; height:auto;
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px;
+    padding:10px; background:linear-gradient(180deg,#141414,#0f0f0f); color:var(--text); border-bottom:1px solid #1f1f1f;
+  }
+  #bar .group { display:flex; align-items:center; gap:6px; }
+  #bar label { font-size:12px; color:#aaa; }
+  #bar input[type="range"] { width:110px; }
+  #bar input[type="number"] { width:70px; }
+  #bar .sep { width:1px; height:28px; background:#222; margin:0 2px; }
+  #bar button { background:#1a1a1a; color:var(--text); border:1px solid #2a2a2a; border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer; }
+  #bar button:active { transform:translateY(1px); }
+  #fps { margin-left:auto; color:#888; font-size:12px; }
+  #hud { position:fixed; bottom:10px; left:10px; color:var(--muted); font-size:12px; background:rgba(0,0,0,0.35); padding:6px 8px; border-radius:6px; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="bar">
+  <div class="group"><strong>Geometry</strong></div>
+  <div class="group"><label>R</label><input id="R" type="range" min="0.6" max="2.5" step="0.01" value="1.2"><input id="R_num" type="number" min="0.6" max="2.5" step="0.01" value="1.2"></div>
+  <div class="group"><label>r</label><input id="r" type="range" min="0.10" max="1.20" step="0.01" value="0.45"><input id="r_num" type="number" min="0.10" max="1.20" step="0.01" value="0.45"></div>
+  <div class="group"><label>us</label><input id="us" type="range" min="24" max="256" step="1" value="120"><input id="us_num" type="number" min="24" max="256" step="1" value="120"></div>
+  <div class="group"><label>vs</label><input id="vs" type="range" min="12" max="192" step="1" value="60"><input id="vs_num" type="number" min="12" max="192" step="1" value="60"></div>
+
+  <div class="sep"></div>
+  <div class="group"><strong>Camera</strong></div>
+  <div class="group"><label>FOV</label><input id="fov" type="range" min="20" max="80" step="1" value="40"></div>
+  <div class="group"><label>CamZ</label><input id="cam" type="range" min="2.0" max="10.0" step="0.1" value="3.5"></div>
+  <div class="group"><label>Scale</label><input id="rscale" type="range" min="0.6" max="2.0" step="0.05" value="1.0"></div>
+
+  <div class="sep"></div>
+  <div class="group"><strong>Motion</strong></div>
+  <div class="group"><label>wx</label><input id="wx" type="range" min="0" max="2.0" step="0.01" value="0.4"></div>
+  <div class="group"><label>wy</label><input id="wy" type="range" min="0" max="2.0" step="0.01" value="0.6"></div>
+
+  <div class="sep"></div>
+  <div class="group"><strong>Light/Material</strong></div>
+  <div class="group"><label>Hue</label><input id="hue" type="range" min="0" max="360" step="1" value="200"></div>
+  <div class="group"><label>Spec</label><input id="spec" type="range" min="1" max="128" step="1" value="32"></div>
+  <div class="group"><label>Liθ</label><input id="ltheta" type="range" min="0" max="360" step="1" value="56"></div>
+  <div class="group"><label>Liφ</label><input id="lphi" type="range" min="-89" max="89" step="1" value="35"></div>
+
+  <div class="sep"></div>
+  <div class="group"><strong>Outline</strong></div>
+  <div class="group"><label>Show</label><input id="outline" type="checkbox" checked></div>
+  <div class="group"><label>Offset</label><input id="pof" type="range" min="0" max="2" step="0.1" value="1"><input id="por" type="range" min="0" max="2" step="0.1" value="1"></div>
+  <div class="group"><label>Mode</label>
+    <select id="wireMode">
+      <option value="lines" selected>Lines (index)</option>
+      <option value="bary">Barycentric FS</option>
+    </select>
+  </div>
+
+  <div class="sep"></div>
+  <div class="group"><button id="pause">Pause</button><button id="reset">Reset</button></div>
+  <div class="group"><button id="snap">PNG</button><button id="dump">Export JSON</button></div>
+  <div id="fps"></div>
+</div>
+
+<div id="hud">Autoscale on low FPS • VAO/derivatives gated by extensions • WebGL1-safe indices</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('gl');
+
+  // Try WebGL2 first (unlocks native VAO/UInt), fallback to WebGL1
+  let gl = canvas.getContext('webgl2', {antialias:true, preserveDrawingBuffer:true});
+  const isGL2 = !!gl;
+  if(!gl){
+    gl = canvas.getContext('webgl', {antialias:true, preserveDrawingBuffer:true});
+    if(!gl){ alert('WebGL not supported'); return; }
+  }
+
+  // Extensions
+  const vaoExt = isGL2 ? null : gl.getExtension('OES_vertex_array_object');
+  const createVAO = isGL2 ? ()=>gl.createVertexArray() : (vaoExt ? ()=>vaoExt.createVertexArrayOES() : null);
+  const bindVAO   = isGL2 ? (vao)=>gl.bindVertexArray(vao) : (vaoExt ? (vao)=>vaoExt.bindVertexArrayOES(vao) : ()=>{});
+  const derExt = gl.getExtension('OES_standard_derivatives'); // fragment shader wireframe
+  const uintExt = isGL2 ? true : gl.getExtension('OES_element_index_uint'); // for >16-bit if ever needed
+
+  // UI
+  const q = id => document.getElementById(id);
+  const UI = {
+    R:q('R'), Rn:q('R_num'), r:q('r'), rn:q('r_num'),
+    us:q('us'), usn:q('us_num'), vs:q('vs'), vsn:q('vs_num'),
+    fov:q('fov'), cam:q('cam'), rscale:q('rscale'),
+    wx:q('wx'), wy:q('wy'),
+    hue:q('hue'), spec:q('spec'), ltheta:q('ltheta'), lphi:q('lphi'),
+    outline:q('outline'), pof:q('pof'), por:q('por'), wireMode:q('wireMode'),
+    pause:q('pause'), reset:q('reset'), snap:q('snap'), dump:q('dump'),
+    fps:q('fps')
+  };
+
+  // Dynamic resolution scale
+  function resize(){
+    const scale = parseFloat(UI.rscale.value);
+    const dprBase = Math.min(window.devicePixelRatio||1, 2);
+    const dpr = Math.max(0.5, Math.min(2.5, dprBase * scale));
+    canvas.width  = Math.round(innerWidth * dpr);
+    canvas.height = Math.round(innerHeight * dpr);
+    gl.viewport(0,0,canvas.width,canvas.height);
+  }
+  window.addEventListener('resize', resize);
+
+  // Shaders
+  function compile(type, src){
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+      throw new Error(gl.getShaderInfoLog(sh)||'shader compile failed');
+    }
+    return sh;
+  }
+  function link(vsSrc, fsSrc, defines=''){
+    const vs = compile(gl.VERTEX_SHADER, defines + vsSrc);
+    const fs = compile(gl.FRAGMENT_SHADER, (defines + fsSrc).replace('gl.FragColor','gl_FragColor'));
+    const p = gl.createProgram();
+    gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+    if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)||'link failed');
+    return p;
+  }
+
+  const VS = `
+  attribute vec3 aPos;
+  attribute vec3 aNor;
+  attribute vec3 aBary; // for bary wireframe
+  uniform mat4 uProj,uView,uModel;
+  varying vec3 vN,vP,vB;
+  void main(){
+    vec4 wp = uModel * vec4(aPos,1.0);
+    vP = wp.xyz;
+    vN = mat3(uModel) * aNor;
+    vB = aBary;
+    gl_Position = uProj * uView * wp;
+  }`;
+
+  const FS = `
+  #ifdef GL_OES_standard_derivatives
+  #extension GL_OES_standard_derivatives : enable
+  #endif
+  precision highp float;
+  varying vec3 vN,vP,vB;
+  uniform vec3 uEye,uLight,uBase;
+  uniform bool uWirePass;
+  uniform float uSpec;
+  uniform int uWireMode; // 0=lines, 1=bary
+  void main(){
+    vec3 N = normalize(vN);
+    if(uWirePass){
+      gl_FragColor = vec4(0.08,0.85,1.0,1.0);
+      return;
+    }
+    // Barycentric wireframe (single-pass) if requested and derivatives available
+    if(uWireMode==1){
+      #ifdef GL_OES_standard_derivatives
+      vec3 bary = vB;
+      vec3 d = fwidth(bary);
+      vec3 a3 = smoothstep(vec3(0.0), d*1.5, bary);
+      float edge = 1.0 - min(min(a3.x,a3.y),a3.z);
+      // Base lighting
+      vec3 L = normalize(uLight);
+      vec3 V = normalize(uEye - vP);
+      vec3 H = normalize(L+V);
+      float diff = max(dot(N,L),0.0);
+      float spec = pow(max(dot(N,H),0.0), uSpec)*0.25;
+      vec3 col = uBase*(0.25+0.75*diff)+spec;
+      col = mix(col, vec3(0.08,0.85,1.0), edge);
+      col = pow(col, vec3(1.0/2.2));
+      gl_FragColor = vec4(col,1.0);
+      return;
+      #endif
+    }
+    vec3 L = normalize(uLight);
+    vec3 V = normalize(uEye - vP);
+    vec3 H = normalize(L+V);
+    float diff = max(dot(N,L),0.0);
+    float spec = pow(max(dot(N,H),0.0), uSpec)*0.25;
+    vec3 col = uBase*(0.25+0.75*diff)+spec;
+    col = pow(col, vec3(1.0/2.2));
+    gl_FragColor = vec4(col,1.0);
+  }`;
+
+  const defines = (derExt ? '#define GL_OES_standard_derivatives 1\n' : '');
+  const prog = link(VS, FS, defines);
+  gl.useProgram(prog);
+
+  // Attributes/uniforms
+  const aPos = gl.getAttribLocation(prog,'aPos');
+  const aNor = gl.getAttribLocation(prog,'aNor');
+  const aBary= gl.getAttribLocation(prog,'aBary');
+  const uProj= gl.getUniformLocation(prog,'uProj');
+  const uView= gl.getUniformLocation(prog,'uView');
+  const uModel=gl.getUniformLocation(prog,'uModel');
+  const uEye = gl.getUniformLocation(prog,'uEye');
+  const uLight=gl.getUniformLocation(prog,'uLight');
+  const uBase= gl.getUniformLocation(prog,'uBase');
+  const uWirePass=gl.getUniformLocation(prog,'uWirePass');
+  const uSpec= gl.getUniformLocation(prog,'uSpec');
+  const uWireMode=gl.getUniformLocation(prog,'uWireMode');
+
+  // Math helpers
+  function perspective(fovy,aspect,n,f){
+    const t=1/Math.tan(fovy/2), nf=1/(n-f);
+    return new Float32Array([ t/aspect,0,0,0, 0,t,0,0, 0,0,(f+n)*nf,-1, 0,0,(2*f*n)*nf,0 ]);
+  }
+  function multiply(a,b){
+    const r=new Float32Array(16);
+    for(let i=0;i<4;i++)for(let j=0;j<4;j++)
+      r[i*4+j]=a[i*4]*b[j]+a[i*4+1]*b[j+4]+a[i*4+2]*b[j+8]+a[i*4+3]*b[j+12];
+    return r;
+  }
+  function rotX(a){const c=Math.cos(a),s=Math.sin(a);
+    return new Float32Array([1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]);}
+  function rotY(a){const c=Math.cos(a),s=Math.sin(a);
+    return new Float32Array([c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]);}
+  function scaleMat(s){
+    return new Float32Array([s,0,0,0, 0,s,0,0, 0,0,s,0, 0,0,0,1]);
+  }
+  function translate(z){
+    return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-z,1]);
+  }
+  function hsv2rgb(h,s,v){
+    h = (h%360+360)%360;
+    const c = v*s, x=c*(1-Math.abs(((h/60)%2)-1)), m=v-c;
+    let r=0,g=0,b=0;
+    if(h<60){r=c;g=x;} else if(h<120){r=x;g=c;}
+    else if(h<180){g=c;b=x;} else if(h<240){g=x;b=c;}
+    else if(h<300){r=x;b=c;} else {r=c;b=x;}
+    return [r+m,g+m,b+m];
+  }
+
+  // Memoized trig tables
+  const trigCacheU = new Map(); // key: us -> {cu,su}
+  const trigCacheV = new Map(); // key: vs -> {cv,sv}
+  function getTrigU(us){
+    let t = trigCacheU.get(us);
+    if(t) return t;
+    const cu=new Float32Array(us+1), su=new Float32Array(us+1);
+    for(let i=0;i<=us;i++){ const u=2*Math.PI*i/us; cu[i]=Math.cos(u); su[i]=Math.sin(u); }
+    t = {cu,su}; trigCacheU.set(us,t); return t;
+  }
+  function getTrigV(vs){
+    let t = trigCacheV.get(vs);
+    if(t) return t;
+    const cv=new Float32Array(vs+1), sv=new Float32Array(vs+1);
+    for(let j=0;j<=vs;j++){ const v=2*Math.PI*j/vs; cv[j]=Math.cos(v); sv[j]=Math.sin(v); }
+    t = {cv,sv}; trigCacheV.set(vs,t); return t;
+  }
+
+  // Geometry generator with interleaved VBO [px,py,pz,nx,ny,nz,bx,by,bz]
+  function makeTorus(R=1.2,r=0.45,us=120,vs=60){
+    r = Math.min(r, R*0.95);
+    const vertCount = (us+1)*(vs+1);
+    const stride = 9; // pos3 + nor3 + bary3
+    const V = new Float32Array(vertCount*stride);
+    const {cu,su} = getTrigU(us);
+    const {cv,sv} = getTrigV(vs);
+
+    // vertices
+    let p=0;
+    for(let j=0;j<=vs;j++){
+      for(let i=0;i<=us;i++){
+        const x=(R+r*cu[i])*cv[j];
+        const y=(R+r*cu[i])*sv[j];
+        const z=r*su[i];
+        // pos
+        V[p++]=x; V[p++]=y; V[p++]=z;
+        // nor (already unit for torus param)
+        V[p++]=cu[i]*cv[j]; V[p++]=cu[i]*sv[j]; V[p++]=su[i];
+        // barycentric per quad (assign by parity to create crisp edges)
+        const bi = (i%2), bj = (j%2);
+        const bary = (bi^bj) ? [1,0,0] : [0,1,0];
+        V[p++]=bary[0]; V[p++]=bary[1]; V[p++]=bary[2];
+      }
+    }
+
+    // indices (triangles)
+    const I = (isGL2 || uintExt) ? new Uint32Array(us*vs*6) : new Uint16Array(us*vs*6);
+    const c=us+1; let k=0;
+    for(let j=0;j<vs;j++){
+      for(let i=0;i<us;i++){
+        const a=j*c+i, b=a+1, d=a+c, e=d+1;
+        I[k++]=a; I[k++]=d; I[k++]=b;
+        I[k++]=b; I[k++]=d; I[k++]=e;
+      }
+    }
+
+    // grid edges (lines) without dedup
+    const linesPerStrip = us*2;
+    const totalU = (vs+1) * linesPerStrip;
+    const totalV = (us+1) * vs * 2;
+    const E = (isGL2 || uintExt) ? new Uint32Array(totalU + totalV) : new Uint16Array(totalU + totalV);
+    let ek=0;
+    for(let j=0;j<=vs;j++){
+      const row = j*c;
+      for(let i=0;i<us;i++){ E[ek++]=row+i; E[ek++]=row+i+1; }
+    }
+    for(let i=0;i<=us;i++){
+      for(let j=0;j<vs;j++){ E[ek++]=j*c+i; E[ek++]=(j+1)*c+i; }
+    }
+    return {V,I,E,us,vs, vertCount};
+  }
+
+  // Buffers + VAO
+  const vbo=gl.createBuffer();
+  const ibo=gl.createBuffer();
+  const ebo=gl.createBuffer();
+  let vao = null;
+  if(createVAO){ vao = createVAO(); bindVAO(vao); }
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos,3,gl.FLOAT,false, 9*4, 0);
+  gl.enableVertexAttribArray(aNor);
+  gl.vertexAttribPointer(aNor,3,gl.FLOAT,false, 9*4, 3*4);
+  gl.enableVertexAttribArray(aBary);
+  gl.vertexAttribPointer(aBary,3,gl.FLOAT,false, 9*4, 6*4);
+  if(createVAO) bindVAO(null);
+
+  // Rebuild + buffer management
+  let geom=null, indexCount=0, edgeCount=0;
+  function uploadGeometry(reuse=False){
+    if(!geom) return;
+    if(createVAO) bindVAO(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    if(reuse){
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, geom.V);
+    } else {
+      gl.bufferData(gl.ARRAY_BUFFER, geom.V, gl.STATIC_DRAW);
+    }
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geom.I, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geom.E, gl.STATIC_DRAW);
+    if(createVAO) bindVAO(null);
+    indexCount = geom.I.length;
+    edgeCount = geom.E.length;
+  }
+
+  // Debounce rebuild
+  let pending=false;
+  function scheduleRebuild(){
+    if(pending) return;
+    pending=true;
+    (window.requestIdleCallback || window.requestAnimationFrame)(()=>{
+      pending=false;
+      const R=parseFloat(UI.R.value), r=parseFloat(UI.r.value);
+      const us=parseInt(UI.us.value), vs=parseInt(UI.vs.value);
+      const prevVC = geom ? geom.vertCount : -1;
+      geom = makeTorus(R,r,us,vs);
+      const sameSize = (prevVC === geom.vertCount);
+      uploadGeometry(!!sameSize);
+    });
+  }
+
+  // Pair bindings
+  function bindPair(range, number){
+    function sync(e){
+      if(e.target===range){ number.value = range.value; }
+      else { range.value = number.value; }
+      scheduleRebuild();
+    }
+    range.addEventListener('input', sync);
+    number.addEventListener('input', sync);
+  }
+  bindPair(UI.R, UI.Rn);
+  bindPair(UI.r, UI.rn);
+  bindPair(UI.us, UI.usn);
+  bindPair(UI.vs, UI.vsn);
+
+  // Simple listeners
+  ['fov','cam','rscale','wx','wy','hue','spec','ltheta','lphi','pof','por','outline','wireMode'].forEach(id=>{
+    const el = UI[id];
+    el.addEventListener(el.type==='checkbox' || el.tagName==='SELECT' ? 'change' : 'input', ()=>{});
+  });
+
+  // Controls
+  let paused=false, time=0, lastT=performance.now(), frames=0, tFPS=performance.now();
+  UI.pause.addEventListener('click', ()=>{ paused=!paused; UI.pause.textContent = paused?'Resume':'Pause'; });
+  UI.reset.addEventListener('click', ()=>{ time=0; paused=false; UI.pause.textContent='Pause'; });
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) paused=true; });
+
+  // Snap PNG
+  UI.snap.addEventListener('click', ()=>{
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href=url; a.download='torus.png'; a.click();
+  });
+
+  // Dump JSON of parameters
+  UI.dump.addEventListener('click', ()=>{
+    const data = {
+      R: +UI.R.value, r: +UI.r.value, us:+UI.us.value, vs:+UI.vs.value,
+      fov:+UI.fov.value, cam:+UI.cam.value, rscale:+UI.rscale.value,
+      wx:+UI.wx.value, wy:+UI.wy.value,
+      hue:+UI.hue.value, spec:+UI.spec.value, ltheta:+UI.ltheta.value, lphi:+UI.lphi.value,
+      outline:UI.outline.checked, pof:+UI.pof.value, por:+UI.por.value, wireMode:UI.wireMode.value
+    };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url; a.download='torus_params.json'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  });
+
+  // Initial
+  resize();
+  scheduleRebuild();
+
+  // GL state
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
+  gl.clearColor(0.04,0.04,0.05,1);
+
+  function draw(){
+    const now = performance.now();
+    const dt = Math.min((now - lastT)/1000, 0.033);
+    lastT = now;
+    if(!paused) time += dt;
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+    const aspect = canvas.width/canvas.height;
+    const fov = parseFloat(UI.fov.value) * Math.PI/180;
+    const proj = perspective(fov, aspect, 0.1, 50.0);
+    const view = translate(parseFloat(UI.cam.value));
+
+    const rx = rotX(time*parseFloat(UI.wx.value));
+    const ry = rotY(time*parseFloat(UI.wy.value));
+    const s = 1.2 / Math.max(aspect,1.0);
+    const model = multiply(scaleMat(s), multiply(rx, ry));
+
+    const th = parseFloat(UI.ltheta.value) * Math.PI/180;
+    const ph = parseFloat(UI.lphi.value)   * Math.PI/180;
+    const L = new Float32Array([ Math.cos(th)*Math.cos(ph), Math.sin(ph), Math.sin(th)*Math.cos(ph) ]);
+    const base = (function(h){ // HSV -> RGB with s=0.6 v=1
+      h=(h%360+360)%360; const s=0.6, v=1.0;
+      const c=v*s, x=c*(1-Math.abs(((h/60)%2)-1)), m=v-c; let r=0,g=0,b=0;
+      if(h<60){r=c;g=x;} else if(h<120){r=x;g=c;} else if(h<180){g=c;b=x;}
+      else if(h<240){g=x;b=c;} else if(h<300){r=x;b=c;} else {r=c;b=x;}
+      return new Float32Array([r+m,g+m,b+m]);
+    })(parseFloat(UI.hue.value));
+
+    gl.useProgram(prog);
+    gl.uniformMatrix4fv(uProj,false,proj);
+    gl.uniformMatrix4fv(uView,false,view);
+    gl.uniformMatrix4fv(uModel,false,model);
+    gl.uniform3fv(uEye,new Float32Array([0,0,parseFloat(UI.cam.value)]));
+    gl.uniform3fv(uLight,L);
+    gl.uniform3fv(uBase,base);
+    gl.uniform1f(uSpec, parseFloat(UI.spec.value));
+    gl.uniform1i(uWireMode, UI.wireMode.value==='bary' && derExt ? 1 : 0);
+
+    if(createVAO) bindVAO(vao);
+
+    // Filled pass
+    if(UI.wireMode.value!=='bary' || !derExt){ // in bary mode, edge blend occurs in single pass
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(parseFloat(UI.pof.value), parseFloat(UI.por.value));
+      gl.uniform1i(uWirePass, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.drawElements(gl.TRIANGLES, indexCount, (isGL2||uintExt)?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT, 0);
+      gl.disable(gl.POLYGON_OFFSET_FILL);
+    }else{
+      gl.uniform1i(uWirePass, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.drawElements(gl.TRIANGLES, indexCount, (isGL2||uintExt)?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT, 0);
+    }
+
+    // Lines pass if selected
+    if(UI.outline.checked && (UI.wireMode.value!=='bary' || !derExt)){
+      gl.uniform1i(uWirePass, 1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+      gl.drawElements(gl.LINES, edgeCount, (isGL2||uintExt)?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT, 0);
+      gl.uniform1i(uWirePass, 0);
+    }
+
+    if(createVAO) bindVAO(null);
+
+    // FPS and autoscale
+    frames++;
+    if(now - tFPS > 500){
+      const fps = Math.round(1000*frames / (now - tFPS));
+      UI.fps.textContent = fps + " fps";
+      // autoscale down if < 28 fps
+      if(fps < 28){
+        // lower render scale or lower mesh temporarily
+        const rs = parseFloat(UI.rscale.value);
+        if(rs > 0.8){ UI.rscale.value = Math.max(0.6, rs - 0.1); resize(); }
+        else{
+          // Temporarily reduce segments; restore when idle
+          const us = Math.max(24, Math.floor(parseInt(UI.us.value) * 0.85));
+          const vs = Math.max(12, Math.floor(parseInt(UI.vs.value) * 0.85));
+          if(us !== parseInt(UI.us.value)){ UI.us.value = UI.usn.value = us; scheduleRebuild(); }
+          if(vs !== parseInt(UI.vs.value)){ UI.vs.value = UI.vsn.value = vs; scheduleRebuild(); }
+        }
+      }
+      frames=0; tFPS=now;
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  requestAnimationFrame(draw);
+  resize();
+})();
+</script>
+</body>
+</html>
