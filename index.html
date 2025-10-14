@@ -131,6 +131,165 @@
         </address>
       </section>
     </details>
+
+    <hr aria-hidden="true">
+
+<details id="local-llm">
+  <summary>Local LLM</summary>
+  <section id="spelldrive" aria-labelledby="spelldrive-heading" style="color:inherit;padding:1rem 0;">
+    <div style="max-width:960px;margin:0 auto;">
+      <h1 id="spelldrive-heading" style="text-align:center;margin:0;">SpellDrive™</h1>
+      <h3 style="text-align:center;margin-top:0.25rem;">Private Local AI Chat Terminal</h3>
+
+      <form onsubmit="submitMessage(); return false;" style="text-align:center;">
+        <label for="mode">Chat Mode:</label>
+        <select id="mode">
+          <option value="chat">Chat Assistant</option>
+          <option value="code">Code Explainer</option>
+          <option value="proof">Mathematical Proof Solver</option>
+          <option value="sith">Evil Strategist</option>
+        </select><br><br>
+
+        <input type="text" id="userInput" size="60" placeholder="Speak your spell..." />
+        <input type="submit" value="Send" />
+      </form>
+
+      <hr style="width:80%;margin:1rem auto;">
+
+      <div id="chatlog" style="width:80%;margin:0 auto;font-family:monospace;"></div>
+
+      <div style="text-align:center;margin-top:3em;">
+        <small>SpellDrive™ | Est. 2025 | Locally Hosted Wisdom</small>
+      </div>
+    </div>
+  </section>
+
+  <script>
+  (function(){
+    const serverUrl = "http://100.71.174.79:8080/completion";
+    let conversationHistory = "";
+    const prePromptMap = {
+      "chat": "The following is a friendly conversation with a helpful local AI assistant named SpellDrive.",
+      "code": "SpellDrive is a technical assistant that explains programming concepts concisely.",
+      "proof": "SpellDrive provides formal, step-by-step mathematical reasoning.",
+      "sith": "SpellDrive is a manipulative, strategic AI with dark intent. It answers cleverly and with subtle menace."
+    };
+
+    function buildPrompt(userMessage, mode) {
+      if (!conversationHistory) {
+        conversationHistory = prePromptMap[mode] + "\n\n";
+      }
+      conversationHistory += "Human: " + userMessage + "\nAI:";
+      return conversationHistory;
+    }
+
+    async function submitMessage() {
+      const input = document.getElementById("userInput");
+      const chatlog = document.getElementById("chatlog");
+      const mode = document.getElementById("mode").value;
+      const userText = input.value.trim();
+      if (!userText) return;
+
+      chatlog.innerHTML += "<b>You:</b> " + userText + "<br>";
+      const prompt = buildPrompt(userText, mode);
+
+      const payload = {
+        prompt: prompt,
+        temperature: 0.7,
+        top_p: 0.9,
+        n_predict: 256,
+        stream: false,
+        stop: ["Human:", "User:"]
+      };
+
+      try {
+        const res = await fetch(serverUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        const aiReply = (data && (data.content || (data.choices && data.choices[0] && data.choices[0].text))) ? (data.content || data.choices[0].text) : "";
+        chatlog.innerHTML += "<b>SpellDrive:</b> " + aiReply.trim().replace(/\n/g, "<br>") + "<br><br>";
+        conversationHistory += " " + aiReply.trim() + "\n";
+        input.value = "";
+        input.focus();
+      } catch (err) {
+        chatlog.innerHTML += "<b>SpellDrive (error):</b> " + err + "<br>";
+      }
+    }
+
+    window.submitMessage = submitMessage;
+  })();
+  </script>
+</details>
+
+
+
+<!-- SpellDrive block inserted -->
+<script>
+// SpellDrive client script
+(function(){
+  const serverUrl = "http://100.71.174.79:8080/completion";
+  let conversationHistory = "";
+  const prePromptMap = {
+    "chat": "The following is a friendly conversation with a helpful local AI assistant named SpellDrive.",
+    "code": "SpellDrive is a technical assistant that explains programming concepts concisely.",
+    "proof": "SpellDrive provides formal, step-by-step mathematical reasoning.",
+    "sith": "SpellDrive is a manipulative, strategic AI with dark intent. It answers cleverly and with subtle menace."
+  };
+
+  function buildPrompt(userMessage, mode) {
+    if (!conversationHistory) {
+      conversationHistory = prePromptMap[mode] + "\n\n";
+    }
+    conversationHistory += "Human: " + userMessage + "\nAI:";
+    return conversationHistory;
+  }
+
+  async function submitMessage() {
+    const input = document.getElementById("userInput");
+    const chatlog = document.getElementById("chatlog");
+    const mode = document.getElementById("mode").value;
+    const userText = input.value.trim();
+    if (!userText) return;
+
+    chatlog.innerHTML += "<b>You:</b> " + userText + "<br>";
+    const prompt = buildPrompt(userText, mode);
+
+    const payload = {
+      prompt: prompt,
+      temperature: 0.7,
+      top_p: 0.9,
+      n_predict: 256,
+      stream: false,
+      stop: ["Human:", "User:"]
+    };
+
+    try {
+      const res = await fetch(serverUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      const aiReply = (data && (data.content || data.choices && data.choices[0] && data.choices[0].text)) ? (data.content || data.choices[0].text) : "";
+      chatlog.innerHTML += "<b>SpellDrive:</b> " + aiReply.trim().replace(/\n/g, "<br>") + "<br><br>";
+      conversationHistory += " " + aiReply.trim() + "\n";
+      input.value = "";
+      input.focus();
+    } catch (err) {
+      chatlog.innerHTML += "<b>SpellDrive (error):</b> " + err + "<br>";
+    }
+  }
+
+  // expose submitMessage globally for the form onsubmit
+  window.submitMessage = submitMessage;
+})();
+</script>
+<!-- End SpellDrive block -->
+
+
   </main>
 
   <!-- Klein Bottle Render: fragmented tiles, mobile-balanced, rainbow -->
