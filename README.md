@@ -20,9 +20,8 @@ I am resuming my career as an Accounts Payable Supervisor with Duquesne Universi
 
 ## Current Focus
 
-- Career transition  
-- Raising Wensley  
-- Managing a horse boarding business  
+- Starting my AP Supervisor Role
+- Managing a horse boarding business
 
 **Computational Modeling**
 
@@ -39,7 +38,7 @@ I am resuming my career as an Accounts Payable Supervisor with Duquesne Universi
 **Duquesne University** — AP Supervisor (2024–Present)  
 [duq.edu](https://www.duq.edu/)  
 
-- Run and maintain an equestrian boarding business.
+- Processing payments to support daily university operations.
 
 **Tailworthy Stables** — Co-Owner & Operator (2023–Present)  
 [Tailworthy Stables on Facebook](https://www.facebook.com/p/Tail-Worthy-Stables-61558109177331/)  
