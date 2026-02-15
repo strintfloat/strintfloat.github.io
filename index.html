@@ -142,135 +142,253 @@
 
   </main>
 
-  <!-- Klein Bottle Render: fragmented tiles, mobile-balanced, rainbow -->
-  <canvas id="klein"></canvas>
-  <script>
-/* ==== WebGL setup ==== */
-const vs = `
+  <!-- Klein Bottle Render: tiles slide in ONE direction (U); seamless periodic color gradient; no gaps; white borders; seam-safe splitting -->
+<canvas id="klein"></canvas>
+<script>
+/* ==== shaders ==== */
+const vsFill = `
   attribute vec3 a;
+  attribute vec3 ac;     // per-quad color (static per original tile)
   uniform mat4 m;
-  uniform float b;   // subtle scale (breath)
-  varying vec3 p;
+  uniform float b;
+  varying vec3 vc;
   void main(){
-    p = a;
+    vc = ac;
     gl_Position = m * vec4(a * (1.0 + b), 1.0);
   }`;
-const fs = `
+
+const fsFill = `
   precision mediump float;
-  varying vec3 p;
-  uniform float t;
+  varying vec3 vc;
   void main(){
-    // rotate color field around central axis (Z) without moving geometry
-    float ang = t * 0.0015;          // rotation speed
-    float c = cos(ang), s = sin(ang);
-    vec2 q = mat2(c, -s, s, c) * p.xy;
-
-    // hue from rotated polar angle; slight radial wobble to avoid banding
-    float h = fract(atan(q.y, q.x) / 6.2831853 + 0.08 * sin(6.2831853 * length(q)));
-
-    vec3 col = 0.5 + 0.5 * cos(6.2831853 * (h + vec3(0.0, 0.3333333, 0.6666667)));
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(vc, 1.0);
   }`;
 
+const vsLine = `
+  attribute vec3 a;
+  uniform mat4 m;
+  uniform float b;
+  uniform float s;
+  void main(){
+    gl_Position = m * vec4(a * (1.0 + b + s), 1.0);
+  }`;
 
+const fsLine = `
+  precision mediump float;
+  void main(){ gl_FragColor = vec4(1.0); }
+`;
+
+/* ==== GL init ==== */
 const g = document.getElementById('klein');
-const gl = g.getContext('webgl', {antialias:true});
-if(!gl) { throw 'WebGL unavailable'; }
+const gl = g.getContext('webgl', { antialias:true });
+if(!gl) throw 'WebGL unavailable';
 
-/* ==== canvas sizing (mobile-balanced preset) ==== */
 function resize(){
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.5); // cap DPR for perf
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   g.width  = innerWidth * dpr;
-  g.height = 300 * dpr;                                     // balanced height
+  g.height = 300 * dpr;
   g.style.width  = '100%';
   g.style.height = '300px';
   gl.viewport(0,0,g.width,g.height);
 }
 addEventListener('resize', resize);
 
-/* ==== program ==== */
-function sh(t,s){ const h=gl.createShader(t); gl.shaderSource(h,s); gl.compileShader(h);
-  if(!gl.getShaderParameter(h,gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(h); return h; }
-const prog = gl.createProgram();
-gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
-gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
-gl.linkProgram(prog);
-if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw gl.getProgramInfoLog(prog);
-gl.useProgram(prog);
-const a  = gl.getAttribLocation(prog,'a');
-const uM = gl.getUniformLocation(prog,'m');
-const uT = gl.getUniformLocation(prog,'t');
-const uB = gl.getUniformLocation(prog,'b');
+/* ==== program helpers ==== */
+function sh(type, src){
+  const h = gl.createShader(type);
+  gl.shaderSource(h, src);
+  gl.compileShader(h);
+  if(!gl.getShaderParameter(h, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(h);
+  return h;
+}
+function mkProg(vs, fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw gl.getProgramInfoLog(p);
+  return p;
+}
+const progFill = mkProg(vsFill, fsFill);
+const progLine = mkProg(vsLine, fsLine);
+
 /* ==== Klein param ==== */
-function k(u,v){
+const TAU = Math.PI * 2;
+function k(u, v){
   const A=1.4, cu2=Math.cos(u*0.5), su2=Math.sin(u*0.5), sv=Math.sin(v), s2v=Math.sin(2*v);
   const R=A + cu2*sv - su2*s2v;
   return [ R*Math.cos(u), R*Math.sin(u), su2*sv + cu2*s2v ];
 }
 
-/* ==== fragmented tile geometry (single draw) ==== */
-// Mobile-balanced preset
-const nu = 64, nv = 32;   // more tiles => smoother silhouette
-const inset = 0.20;       // gap between tiles (0..0.49)
+/* ==== grid / motion ==== */
+const nu = 64, nv = 32;
+const inset = 0.0;           // close gaps
+
+// MOVE IN ONE DIRECTION: along U only (long side)
+const SPEED_U = 0.45;        // radians/sec (tune)
+const SPEED_V = 0.0;
 
 function lerp(a,b,t){ return a + (b-a)*t; }
+function wrapTau(x){
+  x = x % TAU;
+  return x < 0 ? x + TAU : x;
+}
 
-// 4 verts per cell, 6 indices per cell
-const verts = new Float32Array(nu*nv*4*3);
-const indices = new Uint16Array(nu*nv*6);
-let vp=0, ip=0, base=0;
-
+/* ==== base tiles ==== */
+const tile = new Array(nu*nv);
+let idx=0;
 for(let i=0;i<nu;i++){
-  const u0=i/nu*Math.PI*2, u1=(i+1)/nu*Math.PI*2;
-  const ui0=lerp(u0,u1,inset), ui1=lerp(u0,u1,1-inset);
+  const u0=i/nu*TAU, u1=(i+1)/nu*TAU;
   for(let j=0;j<nv;j++){
-    const v0=j/nv*Math.PI*2, v1=(j+1)/nv*Math.PI*2;
-    const vi0=lerp(v0,v1,inset), vi1=lerp(v0,v1,1-inset);
+    const v0=j/nv*TAU, v1=(j+1)/nv*TAU;
+    const uc = (u0+u1)*0.5;
+    const vc = (v0+v1)*0.5;
 
-    const p00=k(ui0,vi0), p10=k(ui1,vi0), p11=k(ui1,vi1), p01=k(ui0,vi1);
+    // Seamless periodic gradient (no discontinuity at 0/2π):
+    // Build color directly from periodic trig fields in (u,v).
+    const w = uc + 0.1*Math.sin(vc); // mild v modulation, still periodic
+    const col = [
+      0.5 + 0.5*Math.cos(w + 0.0),
+      0.5 + 0.5*Math.cos(w + TAU/3),
+      0.5 + 0.5*Math.cos(w + 2*TAU/3),
+    ];
 
-    verts[vp++]=p00[0]; verts[vp++]=p00[1]; verts[vp++]=p00[2];
-    verts[vp++]=p10[0]; verts[vp++]=p10[1]; verts[vp++]=p10[2];
-    verts[vp++]=p11[0]; verts[vp++]=p11[1]; verts[vp++]=p11[2];
-    verts[vp++]=p01[0]; verts[vp++]=p01[1]; verts[vp++]=p01[2];
-
-    indices[ip++]=base; indices[ip++]=base+1; indices[ip++]=base+2;
-    indices[ip++]=base; indices[ip++]=base+2; indices[ip++]=base+3;
-    base += 4;
+    tile[idx++] = { u0,u1,v0,v1, col };
   }
 }
 
-// normalize to fit view
-(function(){
+/* ==== max quads after seam splitting (U-only wrap) ==== */
+const MAX_QUADS = nu*nv + nv + 4;
+
+/* ==== dynamic buffers ==== */
+const verts  = new Float32Array(MAX_QUADS * 4 * 3);
+const cols   = new Float32Array(MAX_QUADS * 4 * 3);
+const triIdx = new Uint16Array(MAX_QUADS * 6);
+const lineIdx= new Uint16Array(MAX_QUADS * 8);
+
+/* indices for MAX_QUADS */
+let ip=0, base=0;
+for(let q=0;q<MAX_QUADS;q++){
+  triIdx[ip++]=base; triIdx[ip++]=base+1; triIdx[ip++]=base+2;
+  triIdx[ip++]=base; triIdx[ip++]=base+2; triIdx[ip++]=base+3;
+  base += 4;
+}
+let lp=0; base=0;
+for(let q=0;q<MAX_QUADS;q++){
+  lineIdx[lp++]=base+0; lineIdx[lp++]=base+1;
+  lineIdx[lp++]=base+1; lineIdx[lp++]=base+2;
+  lineIdx[lp++]=base+2; lineIdx[lp++]=base+3;
+  lineIdx[lp++]=base+3; lineIdx[lp++]=base+0;
+  base += 4;
+}
+
+/* ==== normalization ==== */
+const norm = (() => {
   let minX=1e9,minY=1e9,minZ=1e9,maxX=-1e9,maxY=-1e9,maxZ=-1e9;
-  for(let i=0;i<verts.length;i+=3){
-    const x=verts[i], y=verts[i+1], z=verts[i+2];
-    if(x<minX)minX=x; if(y<minY)minY=y; if(z<minZ)minZ=z;
-    if(x>maxX)maxX=x; if(y>maxY)maxY=y; if(z>maxZ)maxZ=z;
+  const su=256, sv=128;
+  for(let i=0;i<=su;i++){
+    const u=i/su*TAU;
+    for(let j=0;j<=sv;j++){
+      const v=j/sv*TAU;
+      const p=k(u,v);
+      const x=p[0],y=p[1],z=p[2];
+      if(x<minX)minX=x; if(y<minY)minY=y; if(z<minZ)minZ=z;
+      if(x>maxX)maxX=x; if(y>maxY)maxY=y; if(z>maxZ)maxZ=z;
+    }
   }
   const cx=(minX+maxX)/2, cy=(minY+maxY)/2, cz=(minZ+maxZ)/2;
-  const s=1.6/Math.max(maxX-minX, Math.max(maxY-minY, maxZ-minZ)); // a bit smaller
-  for(let i=0;i<verts.length;i+=3){
-    verts[i]=(verts[i]-cx)*s; verts[i+1]=(verts[i+1]-cy)*s; verts[i+2]=(verts[i+2]-cz)*s;
-  }
+  const s=1.6/Math.max(maxX-minX, Math.max(maxY-minY, maxZ-minZ));
+  return {cx,cy,cz,s};
 })();
 
-// upload buffers
-const VB = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, VB);
-gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-const IB = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, IB);
-gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 3, gl.FLOAT, false, 0, 0);
+function writeVert(out, off, p){
+  out[off+0]=(p[0]-norm.cx)*norm.s;
+  out[off+1]=(p[1]-norm.cy)*norm.s;
+  out[off+2]=(p[2]-norm.cz)*norm.s;
+}
+function writeCol(out, off, c){
+  out[off+0]=c[0]; out[off+1]=c[1]; out[off+2]=c[2];
+}
+
+/* ==== split segments at U wrap boundary only ==== */
+function segsAtWrapU(u0, u1){
+  if(u1 < u0) return [[u0, TAU], [0.0, u1]];
+  return [[u0, u1]];
+}
+
+/* ==== emit quad ==== */
+function emitQuad(qi, u0, u1, v0, v1, col){
+  const ui0 = lerp(u0, u1, inset), ui1 = lerp(u0, u1, 1-inset);
+  const vi0 = lerp(v0, v1, inset), vi1 = lerp(v0, v1, 1-inset);
+
+  const p00 = k(ui0,vi0), p10 = k(ui1,vi0), p11 = k(ui1,vi1), p01 = k(ui0,vi1);
+
+  const vp = qi * 12;
+  writeVert(verts, vp+0,  p00);
+  writeVert(verts, vp+3,  p10);
+  writeVert(verts, vp+6,  p11);
+  writeVert(verts, vp+9,  p01);
+
+  const cp = qi * 12;
+  writeCol(cols, cp+0, col);
+  writeCol(cols, cp+3, col);
+  writeCol(cols, cp+6, col);
+  writeCol(cols, cp+9, col);
+}
+
+/* ==== dynamic geometry update (U only; seam-safe) ==== */
+function updateGeometry(tms){
+  const tt = tms * 0.001;
+  const du = SPEED_U * tt;
+
+  let quadCount = 0;
+  for(let n=0;n<tile.length;n++){
+    const q = tile[n];
+
+    const u0w = wrapTau(q.u0 + du), u1w = wrapTau(q.u1 + du);
+    const v0w = q.v0; // SPEED_V locked
+    const v1w = q.v1;
+
+    const us = segsAtWrapU(u0w, u1w);
+    for(let iu=0; iu<us.length; iu++){
+      if(quadCount >= MAX_QUADS) break;
+      emitQuad(quadCount++, us[iu][0], us[iu][1], v0w, v1w, q.col);
+    }
+    if(quadCount >= MAX_QUADS) break;
+  }
+  return quadCount;
+}
+
+/* ==== GL buffers ==== */
+const VB = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, VB);
+gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
+
+const CB = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, CB);
+gl.bufferData(gl.ARRAY_BUFFER, cols, gl.DYNAMIC_DRAW);
+
+const TIB = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, TIB);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, triIdx, gl.STATIC_DRAW);
+
+const LIB = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, LIB);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lineIdx, gl.STATIC_DRAW);
 
 /* ==== math ==== */
-function I(){return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);}
-function P(f,a,n,F){const t=1/Math.tan(f/2), nf=1/(n-F), m=new Float32Array(16);
-  m[0]=t/a; m[5]=t; m[10]=(F+n)*nf; m[11]=-1; m[14]=2*F*n*nf; return m;}
-function T(x,y,z){const m=I(); m[12]=x; m[13]=y; m[14]=z; return m;}
-function Rx(a){const c=Math.cos(a),s=Math.sin(a); return new Float32Array([1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]);}
-function Ry(a){const c=Math.cos(a),s=Math.sin(a); return new Float32Array([c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]);}
-function MM(A,B){const o=new Float32Array(16); for(let r=0;r<4;r++)for(let c=0;c<4;c++)
-  o[r*4+c]=A[r*4+0]*B[0*4+c]+A[r*4+1]*B[1*4+c]+A[r*4+2]*B[2*4+c]+A[r*4+3]*B[3*4+c]; return o;}
+function I(){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);}
+function P(f,a,n,F){const t=1/Math.tan(f/2),nf=1/(n-F),m=new Float32Array(16);
+  m[0]=t/a;m[5]=t;m[10]=(F+n)*nf;m[11]=-1;m[14]=2*F*n*nf;return m;}
+function T(x,y,z){const m=I();m[12]=x;m[13]=y;m[14]=z;return m;}
+function Rx(a){const c=Math.cos(a),s=Math.sin(a);
+  return new Float32Array([1,0,0,0,0,c,-s,0,0,s,c,0,0,0,0,1]);}
+function Ry(a){const c=Math.cos(a),s=Math.sin(a);
+  return new Float32Array([c,0,s,0,0,1,0,0,-s,0,c,0,0,0,0,1]);}
+function MM(A,B){const o=new Float32Array(16);
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++)
+    o[r*4+c]=A[r*4+0]*B[0*4+c]+A[r*4+1]*B[1*4+c]+A[r*4+2]*B[2*4+c]+A[r*4+3]*B[3*4+c];
+  return o;}
 
 /* ==== interaction & camera ==== */
 let yaw=0, pitch=0, panX=0, panY=0, dist=3.5;
@@ -306,10 +424,23 @@ g.addEventListener('mousemove', e=>{
 });
 g.addEventListener('wheel', e=>{
   e.preventDefault();
-  const k=Math.exp(e.deltaY*0.0015);
-  dist = clamp(dist*k, distMin, distMax);
+  dist = clamp(dist*Math.exp(e.deltaY*0.0015), distMin, distMax);
   mark();
 },{passive:false});
+
+/* ==== locations ==== */
+const fillLoc = {
+  a:  gl.getAttribLocation(progFill,'a'),
+  ac: gl.getAttribLocation(progFill,'ac'),
+  m:  gl.getUniformLocation(progFill,'m'),
+  b:  gl.getUniformLocation(progFill,'b'),
+};
+const lineLoc = {
+  a: gl.getAttribLocation(progLine,'a'),
+  m: gl.getUniformLocation(progLine,'m'),
+  b: gl.getUniformLocation(progLine,'b'),
+  s: gl.getUniformLocation(progLine,'s'),
+};
 
 /* ==== render ==== */
 gl.enable(gl.DEPTH_TEST);
@@ -320,27 +451,59 @@ let prevT=null;
 function frame(t){
   if(prevT===null) prevT=t;
   const dt=(t-prevT)/1000; prevT=t;
-  
   if(!dragging && (t-lastInteraction)>idleDelay){ yaw += autoYawPerSec*dt; }
-const breatheScale = 0.015 * Math.sin(t * 0.0008);
-gl.uniform1f(uB, breatheScale);
+
+  const quadCount = updateGeometry(t);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, VB);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, verts.subarray(0, quadCount*12));
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, CB);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, cols.subarray(0, quadCount*12));
+
+  const asp=g.width/g.height;
+  const MVP = MM(
+    MM(Ry(yaw), Rx(pitch)),
+    MM(T(panX,panY,-dist), P(fov, asp, .1, 100))
+  );
+  const breathe = 0.015 * Math.sin(t * 0.0008);
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  const asp=g.width/g.height;
-  const Pp=P(fov, asp, .1, 100);
-  const R=MM(Ry(yaw), Rx(pitch));
-  const V=T(panX,panY,-dist);
-  const MVP=MM(R, MM(V, Pp));
-  gl.uniformMatrix4fv(uM, false, MVP);
-  gl.uniform1f(uT, t);
 
-  // single draw call
-  gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+  /* fill */
+  gl.useProgram(progFill);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, VB);
+  gl.enableVertexAttribArray(fillLoc.a);
+  gl.vertexAttribPointer(fillLoc.a, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, CB);
+  gl.enableVertexAttribArray(fillLoc.ac);
+  gl.vertexAttribPointer(fillLoc.ac, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, TIB);
+  gl.uniformMatrix4fv(fillLoc.m, false, MVP);
+  gl.uniform1f(fillLoc.b, breathe);
+  gl.drawElements(gl.TRIANGLES, quadCount*6, gl.UNSIGNED_SHORT, 0);
+
+  /* borders */
+  gl.useProgram(progLine);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, VB);
+  gl.enableVertexAttribArray(lineLoc.a);
+  gl.vertexAttribPointer(lineLoc.a, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, LIB);
+  gl.uniformMatrix4fv(lineLoc.m, false, MVP);
+  gl.uniform1f(lineLoc.b, breathe);
+  gl.uniform1f(lineLoc.s, 0.0045);
+  gl.drawElements(gl.LINES, quadCount*8, gl.UNSIGNED_SHORT, 0);
 
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-  </script>
+</script>
+
 
   <footer role="contentinfo">
     <hr aria-hidden="true">
