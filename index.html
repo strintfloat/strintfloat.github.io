@@ -136,7 +136,7 @@
 
 
   </main>
-  <!-- Klein Bottle Render: U-only slide; seamless periodic color; NO seam-border line; borders elsewhere -->
+<!-- Klein Bottle Render: U-only slide; seamless periodic color; NO seam-border line; borders elsewhere -->
 <canvas id="klein"></canvas>
 <script>
 /* ==== shaders ==== */
@@ -209,7 +209,7 @@ function k(u, v){
 /* ==== grid / motion ==== */
 const nu = 64, nv = 32;
 const inset = 0.0;          // no gaps
-const SPEED_U = 0.45;       // U-only (long side)
+const SPEED_U = 0.2;       // U-only (long side)
 const SPEED_V = 0.0;
 
 function lerp(a,b,t){ return a + (b-a)*t; }
@@ -227,7 +227,7 @@ for(let i=0;i<nu;i++){
   for(let j=0;j<nv;j++){
     const v0=j/nv*TAU, v1=(j+1)/nv*TAU;
     const uc=(u0+u1)*0.5, vc=(v0+v1)*0.5;
-    const w = COLOR_FREQ*uc + 0.1*Math.sin(vc);
+    const w = COLOR_FREQ*uc;
     const col = [
       0.5 + 0.5*Math.cos(w + 0.0),
       0.5 + 0.5*Math.cos(w + TAU/3),
@@ -509,6 +509,7 @@ function frame(t){
 requestAnimationFrame(frame);
 </script>
 
+
   <footer role="contentinfo">
     <hr aria-hidden="true">
     <p><small>Static HTML with an inline WebGL canvas. No tracking or third-party requests. © <time datetime="2025">2025</time> Michael Thomas Ray.</small></p>
@@ -516,5 +517,6 @@ requestAnimationFrame(frame);
   </font>
 </body>
 </html>
+
 
 
