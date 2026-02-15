@@ -136,14 +136,13 @@
 
 
   </main>
-
-  <!-- Klein Bottle Render: tiles slide in ONE direction (U); seamless periodic color gradient; no gaps; white borders; seam-safe splitting -->
+  <!-- Klein Bottle Render: U-only slide; seamless periodic color; NO seam-border line; borders elsewhere -->
 <canvas id="klein"></canvas>
 <script>
 /* ==== shaders ==== */
 const vsFill = `
   attribute vec3 a;
-  attribute vec3 ac;     // per-quad color (static per original tile)
+  attribute vec3 ac;
   uniform mat4 m;
   uniform float b;
   varying vec3 vc;
@@ -151,27 +150,20 @@ const vsFill = `
     vc = ac;
     gl_Position = m * vec4(a * (1.0 + b), 1.0);
   }`;
-
 const fsFill = `
   precision mediump float;
   varying vec3 vc;
-  void main(){
-    gl_FragColor = vec4(vc, 1.0);
-  }`;
+  void main(){ gl_FragColor = vec4(vc, 1.0); }
+`;
 
 const vsLine = `
   attribute vec3 a;
   uniform mat4 m;
   uniform float b;
   uniform float s;
-  void main(){
-    gl_Position = m * vec4(a * (1.0 + b + s), 1.0);
-  }`;
-
-const fsLine = `
-  precision mediump float;
-  void main(){ gl_FragColor = vec4(1.0); }
+  void main(){ gl_Position = m * vec4(a * (1.0 + b + s), 1.0); }
 `;
+const fsLine = `precision mediump float; void main(){ gl_FragColor = vec4(1.0); }`;
 
 /* ==== GL init ==== */
 const g = document.getElementById('klein');
@@ -188,7 +180,6 @@ function resize(){
 }
 addEventListener('resize', resize);
 
-/* ==== program helpers ==== */
 function sh(type, src){
   const h = gl.createShader(type);
   gl.shaderSource(h, src);
@@ -217,10 +208,8 @@ function k(u, v){
 
 /* ==== grid / motion ==== */
 const nu = 64, nv = 32;
-const inset = 0.0;           // close gaps
-
-// MOVE IN ONE DIRECTION: along U only (long side)
-const SPEED_U = 0.45;        // radians/sec (tune)
+const inset = 0.0;          // no gaps
+const SPEED_U = 0.45;       // U-only (long side)
 const SPEED_V = 0.0;
 
 function lerp(a,b,t){ return a + (b-a)*t; }
@@ -229,51 +218,41 @@ function wrapTau(x){
   return x < 0 ? x + TAU : x;
 }
 
-/* ==== base tiles ==== */
+/* ==== base tiles with seamless periodic color ==== */
+const COLOR_FREQ = 1.0; // (keep; you already know this knob)
 const tile = new Array(nu*nv);
 let idx=0;
 for(let i=0;i<nu;i++){
   const u0=i/nu*TAU, u1=(i+1)/nu*TAU;
   for(let j=0;j<nv;j++){
     const v0=j/nv*TAU, v1=(j+1)/nv*TAU;
-    const uc = (u0+u1)*0.5;
-    const vc = (v0+v1)*0.5;
-
-    // Seamless periodic gradient (no discontinuity at 0/2π):
-    // Build color directly from periodic trig fields in (u,v).
-    const w = uc + 0.1*Math.sin(vc); // mild v modulation, still periodic
+    const uc=(u0+u1)*0.5, vc=(v0+v1)*0.5;
+    const w = COLOR_FREQ*uc + 0.1*Math.sin(vc);
     const col = [
       0.5 + 0.5*Math.cos(w + 0.0),
       0.5 + 0.5*Math.cos(w + TAU/3),
       0.5 + 0.5*Math.cos(w + 2*TAU/3),
     ];
-
     tile[idx++] = { u0,u1,v0,v1, col };
   }
 }
 
-/* ==== max quads after seam splitting (U-only wrap) ==== */
+/* ==== max quads after seam splitting (U-only) ==== */
 const MAX_QUADS = nu*nv + nv + 4;
 
 /* ==== dynamic buffers ==== */
 const verts  = new Float32Array(MAX_QUADS * 4 * 3);
 const cols   = new Float32Array(MAX_QUADS * 4 * 3);
 const triIdx = new Uint16Array(MAX_QUADS * 6);
-const lineIdx= new Uint16Array(MAX_QUADS * 8);
 
-/* indices for MAX_QUADS */
+// IMPORTANT CHANGE: line indices are DYNAMIC so we can omit seam edges
+const lineIdxDyn = new Uint16Array(MAX_QUADS * 8); // worst-case; we’ll fill a prefix each frame
+
+/* indices for MAX_QUADS (triangles only) */
 let ip=0, base=0;
 for(let q=0;q<MAX_QUADS;q++){
   triIdx[ip++]=base; triIdx[ip++]=base+1; triIdx[ip++]=base+2;
   triIdx[ip++]=base; triIdx[ip++]=base+2; triIdx[ip++]=base+3;
-  base += 4;
-}
-let lp=0; base=0;
-for(let q=0;q<MAX_QUADS;q++){
-  lineIdx[lp++]=base+0; lineIdx[lp++]=base+1;
-  lineIdx[lp++]=base+1; lineIdx[lp++]=base+2;
-  lineIdx[lp++]=base+2; lineIdx[lp++]=base+3;
-  lineIdx[lp++]=base+3; lineIdx[lp++]=base+0;
   base += 4;
 }
 
@@ -305,13 +284,14 @@ function writeCol(out, off, c){
   out[off+0]=c[0]; out[off+1]=c[1]; out[off+2]=c[2];
 }
 
-/* ==== split segments at U wrap boundary only ==== */
+/* ==== seam split helpers ==== */
 function segsAtWrapU(u0, u1){
   if(u1 < u0) return [[u0, TAU], [0.0, u1]];
   return [[u0, u1]];
 }
+const EPS = 1e-6;
 
-/* ==== emit quad ==== */
+/* ==== emit quad + emit border segments (with seam-edge suppression) ==== */
 function emitQuad(qi, u0, u1, v0, v1, col){
   const ui0 = lerp(u0, u1, inset), ui1 = lerp(u0, u1, 1-inset);
   const vi0 = lerp(v0, v1, inset), vi1 = lerp(v0, v1, 1-inset);
@@ -331,12 +311,28 @@ function emitQuad(qi, u0, u1, v0, v1, col){
   writeCol(cols, cp+9, col);
 }
 
-/* ==== dynamic geometry update (U only; seam-safe) ==== */
+function emitLinesForQuad(qi, seamLeft, seamRight, lp){
+  // vertex indices for this quad
+  const b = qi * 4;
+
+  // edges: 0-1 (bottom), 1-2 (right), 2-3 (top), 3-0 (left)
+  // seamRight means u==2π edge => right edge (1-2) should be omitted
+  // seamLeft  means u==0 edge  => left  edge (3-0) should be omitted
+  lineIdxDyn[lp++] = b+0; lineIdxDyn[lp++] = b+1;
+  if(!seamRight){ lineIdxDyn[lp++] = b+1; lineIdxDyn[lp++] = b+2; }
+  lineIdxDyn[lp++] = b+2; lineIdxDyn[lp++] = b+3;
+  if(!seamLeft){  lineIdxDyn[lp++] = b+3; lineIdxDyn[lp++] = b+0; }
+  return lp;
+}
+
+/* ==== build dynamic geometry + dynamic border indices ==== */
 function updateGeometry(tms){
   const tt = tms * 0.001;
   const du = SPEED_U * tt;
 
   let quadCount = 0;
+  let lp = 0; // line index write cursor (pairs)
+
   for(let n=0;n<tile.length;n++){
     const q = tile[n];
 
@@ -345,13 +341,24 @@ function updateGeometry(tms){
     const v1w = q.v1;
 
     const us = segsAtWrapU(u0w, u1w);
+
     for(let iu=0; iu<us.length; iu++){
       if(quadCount >= MAX_QUADS) break;
-      emitQuad(quadCount++, us[iu][0], us[iu][1], v0w, v1w, q.col);
+
+      const su0 = us[iu][0], su1 = us[iu][1];
+
+      // detect if this quad touches the seam boundary
+      const seamLeft  = Math.abs(su0 - 0.0) < EPS;
+      const seamRight = Math.abs(su1 - TAU) < EPS;
+
+      emitQuad(quadCount, su0, su1, v0w, v1w, q.col);
+      lp = emitLinesForQuad(quadCount, seamLeft, seamRight, lp);
+
+      quadCount++;
     }
     if(quadCount >= MAX_QUADS) break;
   }
-  return quadCount;
+  return { quadCount, lineIndexCount: lp };
 }
 
 /* ==== GL buffers ==== */
@@ -369,7 +376,7 @@ gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, triIdx, gl.STATIC_DRAW);
 
 const LIB = gl.createBuffer();
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, LIB);
-gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lineIdx, gl.STATIC_DRAW);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, lineIdxDyn, gl.DYNAMIC_DRAW);
 
 /* ==== math ==== */
 function I(){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);}
@@ -390,7 +397,7 @@ let yaw=0, pitch=0, panX=0, panY=0, dist=3.5;
 const fov=45*Math.PI/180, distMin=1.0, distMax=20.0;
 let dragging=false, panMode=false, lastX=0, lastY=0;
 let lastInteraction=0;
-const idleDelay=0, autoYawPerSec=0.15;
+const idleDelay=0, autoYawPerSec=0.05;
 g.style.cursor='grab';
 
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
@@ -448,13 +455,16 @@ function frame(t){
   const dt=(t-prevT)/1000; prevT=t;
   if(!dragging && (t-lastInteraction)>idleDelay){ yaw += autoYawPerSec*dt; }
 
-  const quadCount = updateGeometry(t);
+  const { quadCount, lineIndexCount } = updateGeometry(t);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, VB);
   gl.bufferSubData(gl.ARRAY_BUFFER, 0, verts.subarray(0, quadCount*12));
 
   gl.bindBuffer(gl.ARRAY_BUFFER, CB);
   gl.bufferSubData(gl.ARRAY_BUFFER, 0, cols.subarray(0, quadCount*12));
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, LIB);
+  gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, lineIdxDyn.subarray(0, lineIndexCount));
 
   const asp=g.width/g.height;
   const MVP = MM(
@@ -481,7 +491,7 @@ function frame(t){
   gl.uniform1f(fillLoc.b, breathe);
   gl.drawElements(gl.TRIANGLES, quadCount*6, gl.UNSIGNED_SHORT, 0);
 
-  /* borders */
+  /* borders (with seam edge removed) */
   gl.useProgram(progLine);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, VB);
@@ -492,13 +502,12 @@ function frame(t){
   gl.uniformMatrix4fv(lineLoc.m, false, MVP);
   gl.uniform1f(lineLoc.b, breathe);
   gl.uniform1f(lineLoc.s, 0.0045);
-  gl.drawElements(gl.LINES, quadCount*8, gl.UNSIGNED_SHORT, 0);
+  gl.drawElements(gl.LINES, lineIndexCount, gl.UNSIGNED_SHORT, 0);
 
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 </script>
-
 
   <footer role="contentinfo">
     <hr aria-hidden="true">
@@ -507,4 +516,5 @@ requestAnimationFrame(frame);
   </font>
 </body>
 </html>
+
 
