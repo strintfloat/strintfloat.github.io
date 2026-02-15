@@ -341,6 +341,50 @@ gl.uniform1f(uB, breatheScale);
 }
 requestAnimationFrame(frame);
   </script>
+<hr aria-hidden="true">
+
+<details id="presence">
+  <summary>Presence</summary>
+
+  <p>Updated: <span id="presence-updated">—</span></p>
+
+  <table border="1" cellpadding="6" cellspacing="0">
+    <tr><th>Machine</th><th>Status</th></tr>
+    <tr><td>desktop</td><td id="p-desktop">…</td></tr>
+    <tr><td>dgx1</td><td id="p-dgx1">…</td></tr>
+    <tr><td>dgx2</td><td id="p-dgx2">…</td></tr>
+  </table>
+
+  <script>
+  (function(){
+    const API = "https://YOUR-DASHBOARD-DOMAIN.example/api/status";
+
+    function set(id, val){
+      document.getElementById(id).textContent = val;
+    }
+
+    function render(data){
+      set("presence-updated", data.ts || new Date().toISOString());
+      set("p-desktop", data.desktop ? "ONLINE" : "OFFLINE");
+      set("p-dgx1",    data.dgx1    ? "ONLINE" : "OFFLINE");
+      set("p-dgx2",    data.dgx2    ? "ONLINE" : "OFFLINE");
+    }
+
+    function tick(){
+      fetch(API, { credentials: "omit" })
+        .then(r => r.json())
+        .then(render)
+        .catch(() => {
+          set("presence-updated", "API unreachable");
+          set("p-desktop","—"); set("p-dgx1","—"); set("p-dgx2","—");
+        });
+    }
+
+    tick();
+    setInterval(tick, 10000);
+  })();
+  </script>
+</details>
 
   <footer role="contentinfo">
     <hr aria-hidden="true">
@@ -349,6 +393,7 @@ requestAnimationFrame(frame);
   </font>
 </body>
 </html>
+
 
 
 
